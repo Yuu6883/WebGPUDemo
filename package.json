@@ -1,0 +1,39 @@
+{
+    "name": "webgpu",
+    "version": "1.0.0",
+    "description": "",
+    "main": "index.js",
+    "scripts": {
+        "dev": "webpack serve --mode=development",
+        "build": "webpack build --mode=production",
+        "start": "electron ."
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "@types/node": "^17.0.15",
+        "@types/offscreencanvas": "^2019.6.4",
+        "@types/react": "^17.0.38",
+        "@types/react-dom": "^17.0.11",
+        "@types/react-tabs": "^2.3.4",
+        "@webgpu/types": "^0.1.13",
+        "css-loader": "^6.6.0",
+        "electron": "^17.0.1",
+        "electron-builder": "^22.14.13",
+        "file-loader": "^6.2.0",
+        "gl-matrix": "^3.4.3",
+        "html-webpack-plugin": "^5.5.0",
+        "mobx-react-lite": "^3.2.3",
+        "react": "^17.0.2",
+        "react-dom": "^17.0.2",
+        "react-tabs": "^3.2.3",
+        "react-tooltip": "^4.2.21",
+        "style-loader": "^3.3.1",
+        "swc-loader": "^0.1.15",
+        "typescript": "^4.0.3",
+        "url-loader": "^4.1.1",
+        "webpack-cli": "^4.9.2",
+        "webpack-dev-server": "^4.7.4"
+    }
+}
