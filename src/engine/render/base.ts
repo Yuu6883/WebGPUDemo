@@ -1,4 +1,5 @@
 import { mat4, vec4 } from 'gl-matrix';
+import Cloth from '../cloth/cloth';
 import Engine from '../core/engine';
 import Cube from '../primitives/cube';
 import Camera from './camera';
@@ -20,8 +21,14 @@ export const GDevice: {
     screen: null,
 };
 
+export const checkDevice = () => {
+    if (GDevice.readyState !== 2) throw new Error('Device not ready');
+};
+
 export default class Renderer {
     private RAF = 0;
+    private lastRAF = performance.now();
+
     private engine: Engine;
     private canvas: OffscreenCanvas;
     private ctx: GPUCanvasContext;
@@ -35,7 +42,8 @@ export default class Renderer {
     private scene: Scene;
     private mainCamera: Camera;
 
-    private cubes: Cube[] = [];
+    private readonly cubes: Cube[] = [];
+    private cloth: Cloth;
 
     constructor(engine: Engine) {
         this.engine = engine;
@@ -105,8 +113,20 @@ export default class Renderer {
 
         this.pipeline.updateLight();
 
+        this.cloth = new Cloth(this.pipeline, 10, 10, {
+            mass: 1,
+            rest_length: 1,
+            springConstant: 1,
+            dampingConstant: 1,
+            wind: [0, 0, 0],
+            gravity: [0, -9.81, 0],
+        });
+
+        this.pipeline.clothDrawList.push(this.cloth);
+
         this.start();
 
+        console.log(GDevice.device.limits);
         // setTimeout(() => this.stop(), 100);
     }
 
@@ -136,6 +156,8 @@ export default class Renderer {
 
         this.dimension[0] = w;
         this.dimension[1] = h;
+        GDevice.screen.width = w;
+        GDevice.screen.height = h;
     }
 
     start() {
@@ -151,12 +173,16 @@ export default class Renderer {
                 cube.transform.updateInverse();
             }
 
+            const dt = Math.max(0.1, (now - this.lastRAF) / 1000);
+
             this.pipeline.render(
+                dt,
                 this.ctx.getCurrentTexture().createView(),
                 this.mainCamera.vp,
             );
 
             this.RAF = requestAnimationFrame(cb);
+            this.lastRAF = now;
         };
         this.RAF = requestAnimationFrame(cb);
     }

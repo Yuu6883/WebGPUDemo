@@ -1,16 +1,19 @@
-import { GDevice } from './base';
+import { checkDevice, GDevice } from './base';
 
 import GBufferVertWGSL from '../shaders/gbuffer.vert.wgsl';
 import GBufferFragWGSL from '../shaders/gbuffer.frag.wgsl';
 import QuadVertWGSL from '../shaders/quad.vert.wgsl';
 import DeferredFragWGSL from '../shaders/deferred.frag.wgsl';
-import StaticMesh from './staticmesh';
 import PointLight from './pointlight';
+import { Renderable } from './pass';
+import Cloth, { GCloth } from '../cloth/cloth';
 
 export const GBuffer: {
     ready: boolean;
     views: GPUTextureView[];
     basePipeline: GPURenderPipeline;
+    basePassVertShader: GPUShaderModule;
+    basePassFragShader: GPUShaderModule;
     deferredPipeline: GPURenderPipeline;
     basePassDesc: GPURenderPassDescriptor;
     deferredPassDesc: GPURenderPassDescriptor;
@@ -22,6 +25,8 @@ export const GBuffer: {
     ready: false,
     views: null,
     basePipeline: null,
+    basePassVertShader: null,
+    basePassFragShader: null,
     deferredPipeline: null,
     basePassDesc: null,
     deferredPassDesc: null,
@@ -45,13 +50,15 @@ export class DeferredPipeline {
     static readonly MAX_LIGHTS = 1024;
     static readonly MAX_MESHES = 1024;
 
+    private readonly dtUB: GPUBuffer;
     private readonly camUB: GPUBuffer;
     private readonly dimUB: GPUBuffer;
     private readonly lightSB: GPUBuffer;
     private readonly modelUB: GPUBuffer;
 
     public readonly lightDrawList: PointLight[] = [];
-    public readonly meshDrawList: StaticMesh[] = [];
+    public readonly meshDrawList: Renderable[] = [];
+    public readonly clothDrawList: Cloth[] = [];
 
     private readonly freeModelUniformIndices: number[] = new Array(
         DeferredPipeline.MAX_MESHES,
@@ -59,8 +66,32 @@ export class DeferredPipeline {
 
     private readonly modelBufs: Float32Array;
 
+    public static readonly VertexLayout: GPUVertexBufferLayout = {
+        arrayStride: Float32Array.BYTES_PER_ELEMENT * 8,
+        attributes: [
+            {
+                // position
+                shaderLocation: 0,
+                offset: 0,
+                format: 'float32x3',
+            },
+            {
+                // normal
+                shaderLocation: 1,
+                offset: Float32Array.BYTES_PER_ELEMENT * 3,
+                format: 'float32x3',
+            },
+            {
+                // uv
+                shaderLocation: 2,
+                offset: Float32Array.BYTES_PER_ELEMENT * 6,
+                format: 'float32x2',
+            },
+        ],
+    };
+
     constructor() {
-        if (GDevice.readyState !== 2) throw new Error('Device not ready');
+        checkDevice();
         if (GBuffer.ready) return;
         GBuffer.ready = true;
 
@@ -119,6 +150,12 @@ export class DeferredPipeline {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
+        // f32
+        this.dtUB = device.createBuffer({
+            size: Float32Array.BYTES_PER_ELEMENT,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
         //  mat4x4<f32>
         this.camUB = device.createBuffer({
             size: Float32Array.BYTES_PER_ELEMENT * 16,
@@ -131,46 +168,22 @@ export class DeferredPipeline {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-        const vertexAttriLayout: GPUVertexBufferLayout = {
-            arrayStride: Float32Array.BYTES_PER_ELEMENT * 8,
-            attributes: [
-                {
-                    // position
-                    shaderLocation: 0,
-                    offset: 0,
-                    format: 'float32x3',
-                },
-                {
-                    // normal
-                    shaderLocation: 1,
-                    offset: Float32Array.BYTES_PER_ELEMENT * 3,
-                    format: 'float32x3',
-                },
-                {
-                    // uv
-                    shaderLocation: 2,
-                    offset: Float32Array.BYTES_PER_ELEMENT * 6,
-                    format: 'float32x2',
-                },
-            ],
-        };
-
-        const vertShader = device.createShaderModule({
+        GBuffer.basePassVertShader = device.createShaderModule({
             code: GBufferVertWGSL,
         });
 
-        const fragShader = device.createShaderModule({
+        GBuffer.basePassFragShader = device.createShaderModule({
             code: GBufferFragWGSL,
         });
 
         GBuffer.basePipeline = device.createRenderPipeline({
             vertex: {
-                module: vertShader,
+                module: GBuffer.basePassVertShader,
                 entryPoint: 'main',
-                buffers: [vertexAttriLayout],
+                buffers: [DeferredPipeline.VertexLayout],
             },
             fragment: {
-                module: fragShader,
+                module: GBuffer.basePassFragShader,
                 entryPoint: 'main',
                 targets: [
                     // position
@@ -286,7 +299,7 @@ export class DeferredPipeline {
                           r: Number.MAX_VALUE,
                           g: Number.MAX_VALUE,
                           b: Number.MAX_VALUE,
-                          a: 1.0,
+                          a: Number.MAX_VALUE,
                       },
                 loadOp: 'load',
                 storeOp: 'store',
@@ -339,6 +352,8 @@ export class DeferredPipeline {
             Float32Array.BYTES_PER_ELEMENT;
 
         this.modelBufs = new Float32Array(perModelFloats * DeferredPipeline.MAX_MESHES);
+
+        Cloth.initPipeline(this.camUB, this.dtUB);
     }
 
     updateSize() {
@@ -369,32 +384,60 @@ export class DeferredPipeline {
         };
     }
 
-    freeUniform(mesh: StaticMesh) {
-        this.freeModelUniformIndices.push(mesh.uniformIndex);
+    freeUniformIndex(index: number) {
+        this.freeModelUniformIndices.push(index);
     }
 
-    render(output: GPUTextureView, viewProjection: Float32Array) {
+    render(dt: number, output: GPUTextureView, viewProjection: Float32Array) {
         const device = GDevice.device;
         const queue = device.queue;
 
+        queue.writeBuffer(this.dtUB, 0, new Float32Array([dt]));
         queue.writeBuffer(this.camUB, 0, viewProjection);
         queue.writeBuffer(this.configUB, 0, this.lightNum);
         queue.writeBuffer(this.lightSB, 0, this.lightBuf);
         queue.writeBuffer(this.modelUB, 0, this.modelBufs);
 
         const cmd = device.createCommandEncoder();
+
+        // Cloth compute pass
+        const ClothForcePass = cmd.beginComputePass();
+        ClothForcePass.setPipeline(GCloth.forceCalcPipeline);
+        for (const cloth of this.clothDrawList) cloth.simulate(ClothForcePass);
+        ClothForcePass.endPass();
+
+        // Cloth update pass
+        const ClothUpdatePass = cmd.beginComputePass();
+        ClothUpdatePass.setBindGroup(2, GCloth.dtGroup);
+        ClothUpdatePass.setPipeline(GCloth.updatePipeline);
+        for (const cloth of this.clothDrawList) cloth.update(ClothUpdatePass);
+        ClothUpdatePass.endPass();
+
+        // GBuffer base pass
         const GBufferPass = cmd.beginRenderPass(GBuffer.basePassDesc);
 
+        GBufferPass.setViewport(0, 0, GDevice.screen.width, GDevice.screen.height, 0, 1);
+
+        // Draw meshes
         GBufferPass.setPipeline(GBuffer.basePipeline);
         GBufferPass.setBindGroup(1, GBuffer.viewGroup);
 
         for (const mesh of this.meshDrawList) mesh.draw(GBufferPass);
 
+        // Draw clothes
+        GBufferPass.setPipeline(GCloth.renderPipeline);
+        GBufferPass.setBindGroup(1, GCloth.viewGroup);
+
+        for (const cloth of this.clothDrawList) cloth.draw(GBufferPass);
+
         GBufferPass.endPass();
 
+        // Render to swapchain texture
         GBuffer.deferredPassDesc.colorAttachments[0].view = output;
 
+        // Deferred lighting pass
         const DeferredPass = cmd.beginRenderPass(GBuffer.deferredPassDesc);
+
         DeferredPass.setPipeline(GBuffer.deferredPipeline);
         DeferredPass.setBindGroup(0, GBuffer.texGroup);
         DeferredPass.setBindGroup(1, GBuffer.lightGroup);

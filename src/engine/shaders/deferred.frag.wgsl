@@ -3,13 +3,13 @@
 [[group(0), binding(2)]] var gBufferAlbedo: texture_2d<f32>;
 
 struct LightData {
-  position : vec4<f32>;
-  color : vec3<f32>;
-  radius : f32;
+    position : vec4<f32>;
+    color : vec3<f32>;
+    radius : f32;
 };
 
 [[block]] struct LightsBuffer {
-  lights: array<LightData>;
+    lights: array<LightData>;
 };
 [[group(1), binding(0)]] var<storage, read_write> lightsBuffer: LightsBuffer;
 
@@ -33,9 +33,9 @@ fn main([[builtin(position)]] coord : vec4<f32>)
         gBufferPosition,
         vec2<i32>(floor(coord.xy)),
         0
-    ).xyz;
+    );
 
-    if (position.z > 10000.0) {
+    if (position.w > 10000.0) {
         discard;
     }
 
@@ -52,7 +52,7 @@ fn main([[builtin(position)]] coord : vec4<f32>)
     ).rgb;
 
     for (var i : u32 = 0u; i < config.numLights; i = i + 1u) {
-        let dist = lightsBuffer.lights[i].position.xyz - position;
+        let dist = lightsBuffer.lights[i].position.xyz - position.xyz;
         let distance = length(dist);
         if (distance > lightsBuffer.lights[i].radius) {
             continue;
@@ -68,4 +68,5 @@ fn main([[builtin(position)]] coord : vec4<f32>)
     return vec4<f32>(result, 1.0);
 
     // return vec4<f32>(((normal + vec3<f32>(1.0)) / 2.0), 1.0);
+    // return vec4<f32>(((position.xyz) / 10.0), 1.0);
 }

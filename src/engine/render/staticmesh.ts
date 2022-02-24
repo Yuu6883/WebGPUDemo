@@ -1,8 +1,9 @@
 import Transform from '../core/transform';
 import { GDevice } from './base';
+import { Renderable } from './pass';
 import { DeferredPipeline, GBuffer } from './pipeline';
 
-export default class StaticMesh {
+export default class StaticMesh implements Renderable {
     public readonly transform: Transform;
     public readonly count: number;
 
@@ -12,7 +13,7 @@ export default class StaticMesh {
     private readonly ibo: GPUBuffer;
 
     public readonly uniformIndex: number;
-    private readonly group: GPUBindGroup;
+    private readonly modelGroup: GPUBindGroup;
     private readonly pipeline: DeferredPipeline;
 
     constructor(
@@ -75,8 +76,8 @@ export default class StaticMesh {
             if (indices.BYTES_PER_ELEMENT === 2) {
                 new Uint16Array(this.ibo.getMappedRange()).set(indices);
                 this.indexFormat = 'uint16';
-            } else {
-                new Uint16Array(this.ibo.getMappedRange()).set(indices);
+            } else if (indices.BYTES_PER_ELEMENT === 4) {
+                new Uint32Array(this.ibo.getMappedRange()).set(indices);
                 this.indexFormat = 'uint32';
             }
             this.ibo.unmap();
@@ -85,7 +86,7 @@ export default class StaticMesh {
         const { index, offset, buffer, model } = pipeline.allocUniform();
 
         this.uniformIndex = index;
-        this.group = device.createBindGroup({
+        this.modelGroup = device.createBindGroup({
             layout: GBuffer.basePipeline.getBindGroupLayout(0),
             entries: [
                 {
@@ -105,13 +106,13 @@ export default class StaticMesh {
     }
 
     free() {
-        this.pipeline.freeUniform(this);
+        this.pipeline.freeUniformIndex(this.uniformIndex);
         this.vbo.destroy();
         this.ibo?.destroy();
     }
 
     draw(pass: GPURenderPassEncoder) {
-        pass.setBindGroup(0, this.group);
+        pass.setBindGroup(0, this.modelGroup);
         pass.setVertexBuffer(0, this.vbo);
         if (this.ibo) {
             pass.setIndexBuffer(this.ibo, this.indexFormat);
