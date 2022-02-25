@@ -1,6 +1,6 @@
-import { mat4, vec4 } from 'gl-matrix';
 import Cloth from '../cloth/cloth';
 import Engine from '../core/engine';
+import CameraRotator from '../input/input';
 import Cube from '../primitives/cube';
 import Camera from './camera';
 import { DeferredPipeline } from './pipeline';
@@ -30,7 +30,7 @@ export default class Renderer {
     private lastRAF = performance.now();
 
     private engine: Engine;
-    private canvas: OffscreenCanvas;
+    private canvas: HTMLCanvasElement | OffscreenCanvas;
     private ctx: GPUCanvasContext;
 
     private static DefaultDepthStencilTex: GPUTexture = null;
@@ -41,6 +41,7 @@ export default class Renderer {
     private pipeline: DeferredPipeline;
     private scene: Scene;
     private mainCamera: Camera;
+    private cameraCtrl: CameraRotator;
 
     private readonly cubes: Cube[] = [];
     private cloth: Cloth;
@@ -60,10 +61,6 @@ export default class Renderer {
             GDevice.readyState = 2;
         } else return;
 
-        const p = this.engine.params;
-        GDevice.screen = p.screen;
-        this.resize(p.screen.width * p.dpr, p.screen.height * p.dpr);
-
         GDevice.format = this.ctx.getPreferredFormat(GDevice.adapter);
         this.ctx.configure({
             device: GDevice.device,
@@ -71,15 +68,21 @@ export default class Renderer {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
 
-        this.pipeline = new DeferredPipeline();
-
         this.scene = new Scene(this);
         this.mainCamera = new Camera(this.scene);
+        this.cameraCtrl = new CameraRotator(this.mainCamera);
 
-        const POS_RANGE = 10;
+        const p = this.engine.params;
+        GDevice.screen = p.screen;
+        this.resize(p.screen.width * p.dpr, p.screen.height * p.dpr);
+
+        this.pipeline = new DeferredPipeline();
+
+        const POS_RANGE = 100;
         const rng = (min: number, max: number) => Math.random() * (max - min) + min;
 
-        for (let i = 0; i < 100; i++) {
+        const CUBES = 0;
+        for (let i = 0; i < CUBES; i++) {
             const cube = new Cube(this.pipeline);
             cube.transform.position = [
                 rng(-POS_RANGE, POS_RANGE),
@@ -106,21 +109,25 @@ export default class Renderer {
                 rng(0.25, 0.75),
             ]);
 
-            light.radius = 5;
+            light.radius = 64;
 
             this.pipeline.lightDrawList.push(light);
         }
 
         this.pipeline.updateLight();
 
-        this.cloth = new Cloth(this.pipeline, 10, 10, {
+        const DIM = 64;
+        this.cloth = new Cloth(this.pipeline, DIM, DIM, {
             mass: 1,
-            rest_length: 1,
-            springConstant: 1,
-            dampingConstant: 1,
-            wind: [0, 0, 0],
+            rest_length: 100 / DIM,
+            springConstant: DIM * DIM,
+            dampingConstant: 50,
+            wind: [2, -1, 5],
             gravity: [0, -9.81, 0],
         });
+        this.cloth.transform.position = [-DIM / 2, -DIM / 2, 0];
+        this.cloth.transform.update();
+        this.cloth.transform.updateInverse();
 
         this.pipeline.clothDrawList.push(this.cloth);
 
@@ -158,12 +165,17 @@ export default class Renderer {
         this.dimension[1] = h;
         GDevice.screen.width = w;
         GDevice.screen.height = h;
+
+        this.mainCamera.aspect = w / h;
     }
 
     start() {
         if (this.RAF) return;
-        const cb = (now: number) => {
+
+        const cb = async (now: number) => {
             const t = now * 0.001;
+
+            this.mainCamera.update();
 
             for (let i = 0; i < this.cubes.length; i++) {
                 const cube = this.cubes[i];
@@ -173,16 +185,18 @@ export default class Renderer {
                 cube.transform.updateInverse();
             }
 
-            const dt = Math.max(0.1, (now - this.lastRAF) / 1000);
+            const dt = Math.min(1 / 60, (now - this.lastRAF) / 1000);
 
-            this.pipeline.render(
+            await this.pipeline.render(
                 dt,
                 this.ctx.getCurrentTexture().createView(),
-                this.mainCamera.vp,
+                this.mainCamera.view,
             );
 
+            // setTimeout(() => {
             this.RAF = requestAnimationFrame(cb);
             this.lastRAF = now;
+            // }, 1000);
         };
         this.RAF = requestAnimationFrame(cb);
     }

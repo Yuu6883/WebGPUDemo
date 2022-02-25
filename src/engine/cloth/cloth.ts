@@ -17,30 +17,40 @@ export interface ClothConstants {
 export const GCloth: {
     shader: GPUShaderModule;
     renderPipeline: GPURenderPipeline;
+    normalDebugPipeline: GPURenderPipeline;
     forceCalcPipeline: GPUComputePipeline;
     triangleGenPipeline: GPUComputePipeline;
+    normalCalcPipeline: GPUComputePipeline;
     updatePipeline: GPUComputePipeline;
     dtGroup: GPUBindGroup;
     viewGroup: GPUBindGroup;
+    debugViewGroup: GPUBindGroup;
 } = {
     shader: null,
     renderPipeline: null,
+    normalDebugPipeline: null,
     forceCalcPipeline: null,
+    normalCalcPipeline: null,
     triangleGenPipeline: null,
     updatePipeline: null,
     dtGroup: null,
     viewGroup: null,
+    debugViewGroup: null,
 };
 
 export default class Cloth implements Renderable {
     // vec3<f32> x4 NOTE: vec3 is padded to 16 bytes
     static readonly STRIDE = Float32Array.BYTES_PER_ELEMENT * 4 * 4;
 
-    private readonly transform: Transform;
+    public readonly transform: Transform;
 
     // s_ for simulation
     private readonly s_computeGroup: GPUBindGroup;
     private readonly s_uniformGroup: GPUBindGroup;
+
+    // n_ for normal
+    private readonly n_computeGroup: GPUBindGroup;
+    private readonly n_uniformGroup: GPUBindGroup;
 
     // u_ for update
     private readonly u_computeGroup: GPUBindGroup;
@@ -59,7 +69,10 @@ export default class Cloth implements Renderable {
 
     public readonly uniformIndex: number;
     private readonly modelGroup: GPUBindGroup;
+    private readonly debuModelGroup: GPUBindGroup;
     private readonly pipeline: DeferredPipeline;
+
+    private readonly debugBuf: GPUBuffer;
 
     private readonly totalIndices: number;
 
@@ -82,6 +95,30 @@ export default class Cloth implements Renderable {
                 // uv ((unused))
                 shaderLocation: 2,
                 offset: Float32Array.BYTES_PER_ELEMENT * 8,
+                format: 'float32x2',
+            },
+        ],
+    };
+
+    public static readonly NormalDebugVertexLayout: GPUVertexBufferLayout = {
+        arrayStride: Cloth.STRIDE / 2,
+        attributes: [
+            {
+                // position
+                shaderLocation: 0,
+                offset: 0,
+                format: 'float32x3',
+            },
+            {
+                // normal
+                shaderLocation: 1,
+                offset: Float32Array.BYTES_PER_ELEMENT * 4, // Padded
+                format: 'float32x3',
+            },
+            {
+                // uv ((unused))
+                shaderLocation: 2,
+                offset: Float32Array.BYTES_PER_ELEMENT * 4,
                 format: 'float32x2',
             },
         ],
@@ -126,8 +163,38 @@ export default class Cloth implements Renderable {
                 format: 'depth24plus',
             },
             primitive: {
+                // topology: 'line-list',
                 topology: 'triangle-list',
-                cullMode: 'back',
+                cullMode: 'none',
+            },
+        });
+
+        GCloth.normalDebugPipeline = device.createRenderPipeline({
+            vertex: {
+                module: GBuffer.basePassVertShader,
+                entryPoint: 'main',
+                buffers: [Cloth.NormalDebugVertexLayout],
+            },
+            fragment: {
+                module: GBuffer.basePassFragShader,
+                entryPoint: 'main',
+                targets: [
+                    // position
+                    { format: 'rgba32float' },
+                    // normal
+                    { format: 'rgba32float' },
+                    // albedo
+                    { format: 'bgra8unorm' },
+                ],
+            },
+            depthStencil: {
+                depthWriteEnabled: true,
+                depthCompare: 'less',
+                format: 'depth24plus',
+            },
+            primitive: {
+                topology: 'line-list',
+                cullMode: 'none',
             },
         });
 
@@ -135,6 +202,13 @@ export default class Cloth implements Renderable {
             compute: {
                 module: GCloth.shader,
                 entryPoint: 'init_indices',
+            },
+        });
+
+        GCloth.normalCalcPipeline = device.createComputePipeline({
+            compute: {
+                module: GCloth.shader,
+                entryPoint: 'calc_normal',
             },
         });
 
@@ -164,6 +238,18 @@ export default class Cloth implements Renderable {
                     binding: 0,
                     resource: {
                         buffer: dtUB,
+                    },
+                },
+            ],
+        });
+
+        GCloth.debugViewGroup = device.createBindGroup({
+            layout: GCloth.normalDebugPipeline.getBindGroupLayout(1),
+            entries: [
+                {
+                    binding: 0,
+                    resource: {
+                        buffer: camUB,
                     },
                 },
             ],
@@ -201,25 +287,29 @@ export default class Cloth implements Renderable {
             mappedAtCreation: true,
         });
 
+        this.debugBuf = device.createBuffer({
+            size: Cloth.STRIDE * this.dimension[0] * this.dimension[1],
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        });
+
         const RLEN = constants.rest_length;
         const mapped = this.pointBuffer.getMappedRange();
-        for (let y = 0; y < this.dimension[0]; y++) {
-            for (let x = 0; x < this.dimension[1]; x++) {
+        for (let x = 0; x < this.dimension[0]; x++) {
+            for (let y = 0; y < this.dimension[1]; y++) {
                 const offset = Cloth.STRIDE * (y * this.dimension[0] + x);
                 // Position (set top row to fixed points by setting their position.w to -1)
+                const top = y === this.dimension[1] - 1;
                 new Float32Array(mapped, offset, 4).set([
                     x * RLEN,
                     y * RLEN,
                     0,
-                    y === this.dimension[0] - 1 ? -1 : 0,
+                    top ? -1 : 0,
                 ]);
                 // Normal
-                new Float32Array(mapped, offset + 12, 3).set([0, 0, -1]);
+                new Float32Array(mapped, offset + 16, 3).set([0, 0, 1]);
             }
         }
         this.pointBuffer.unmap();
-
-        console.log('Points uploaded to GPU');
 
         this.constUB = device.createBuffer({
             size: this.constants.byteLength,
@@ -269,6 +359,26 @@ export default class Cloth implements Renderable {
             })),
         });
 
+        this.n_computeGroup = device.createBindGroup({
+            layout: GCloth.normalCalcPipeline.getBindGroupLayout(0),
+            entries: [
+                {
+                    binding: 0,
+                    resource: { buffer: this.pointBuffer },
+                },
+            ],
+        });
+
+        this.n_uniformGroup = device.createBindGroup({
+            layout: GCloth.normalCalcPipeline.getBindGroupLayout(1),
+            entries: [
+                {
+                    binding: 1,
+                    resource: { buffer: this.dimUB },
+                },
+            ],
+        });
+
         this.u_computeGroup = device.createBindGroup({
             layout: GCloth.updatePipeline.getBindGroupLayout(0),
             entries: [
@@ -292,13 +402,16 @@ export default class Cloth implements Renderable {
             // 2 tri per quad, 3 indices per triangle
             this.totalIndices = (this.dimension[0] - 1) * (this.dimension[1] - 1) * 2 * 3;
 
-            const idxBufSize = Uint32Array.BYTES_PER_ELEMENT * 3 * this.totalIndices;
+            const idxBufSize = Uint32Array.BYTES_PER_ELEMENT * this.totalIndices;
             this.ibo = device.createBuffer({
                 size: idxBufSize,
-                usage: GPUBufferUsage.INDEX | GPUBufferUsage.STORAGE,
+                usage:
+                    GPUBufferUsage.INDEX |
+                    GPUBufferUsage.STORAGE |
+                    GPUBufferUsage.COPY_SRC,
             });
 
-            console.log(`Total cloth triangles: ${this.totalIndices}`);
+            console.log(`Total cloth triangles: ${this.totalIndices / 3}`);
 
             const indicesGroup0 = device.createBindGroup({
                 layout: GCloth.triangleGenPipeline.getBindGroupLayout(0),
@@ -333,7 +446,6 @@ export default class Cloth implements Renderable {
             indicesPass.dispatch(GridX, GridY);
             indicesPass.endPass();
 
-            // const bufSize = Cloth.STRIDE * this.dimension[0] * this.dimension[1];
             // const testBuf = device.createBuffer({
             //     size: idxBufSize,
             //     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
@@ -367,16 +479,23 @@ export default class Cloth implements Renderable {
             ],
         });
 
+        this.debuModelGroup = device.createBindGroup({
+            layout: GCloth.normalDebugPipeline.getBindGroupLayout(0),
+            entries: [
+                {
+                    binding: 0,
+                    resource: {
+                        buffer,
+                        offset,
+                        size: Float32Array.BYTES_PER_ELEMENT * 16 * 2,
+                    },
+                },
+            ],
+        });
+
         this.transform = new Transform(model);
         this.transform.update();
         this.transform.updateInverse();
-    }
-
-    draw(pass: GPURenderPassEncoder) {
-        pass.setBindGroup(0, this.modelGroup);
-        pass.setVertexBuffer(0, this.pointBuffer);
-        pass.setIndexBuffer(this.ibo, 'uint32');
-        pass.drawIndexed(this.totalIndices);
     }
 
     free() {
@@ -397,8 +516,6 @@ export default class Cloth implements Renderable {
         pass.setBindGroup(0, this.s_computeGroup);
         pass.setBindGroup(1, this.s_uniformGroup);
 
-        // TODO: oversample
-
         pass.dispatch(GridX, GridY);
     }
 
@@ -407,5 +524,56 @@ export default class Cloth implements Renderable {
         pass.setBindGroup(1, this.u_uniformGroup);
         // Workgroup size is 256
         pass.dispatch(Math.ceil((this.dimension[0] * this.dimension[1]) / 256));
+    }
+
+    recalcNormals(pass: GPUComputePassEncoder) {
+        // Shrinked grid
+        const GridX = Math.ceil(this.dimension[0] / 14);
+        const GridY = Math.ceil(this.dimension[1] / 14);
+
+        pass.setBindGroup(0, this.n_computeGroup);
+        pass.setBindGroup(1, this.n_uniformGroup);
+
+        pass.dispatch(GridX, GridY);
+    }
+
+    draw(pass: GPURenderPassEncoder) {
+        // pass.setBindGroup(0, this.modelGroup);
+        // pass.setVertexBuffer(0, this.pointBuffer);
+        // pass.setIndexBuffer(this.ibo, 'uint32');
+        // pass.drawIndexed(this.totalIndices);
+    }
+
+    debug(pass: GPURenderPassEncoder) {
+        pass.setBindGroup(0, this.debuModelGroup);
+        pass.setVertexBuffer(0, this.pointBuffer);
+        pass.setIndexBuffer(this.ibo, 'uint32');
+        pass.draw(this.dimension[0] * this.dimension[1] * 2);
+    }
+
+    async postUpdate() {
+        // const size = this.dimension[0] * this.dimension[1] * Cloth.STRIDE;
+        // const device = GDevice.device;
+        // const cmd = device.createCommandEncoder();
+        // cmd.copyBufferToBuffer(this.pointBuffer, 0, this.debugBuf, 0, size);
+        // device.queue.submit([cmd.finish()]);
+        // const p = (n: Float32Array, d = 2) => [...n].map(_ => _.toFixed(d)).join(', ');
+        // await this.debugBuf.mapAsync(GPUBufferUsage.MAP_READ);
+        // const mapped = this.debugBuf.getMappedRange();
+        // for (let x = 0; x < this.dimension[0]; x++) {
+        //     for (let y = 0; y < this.dimension[1]; y++) {
+        //         const offset = Cloth.STRIDE * (y * this.dimension[0] + x);
+        //         // Position
+        //         const pos = new Float32Array(mapped, offset, 4);
+        //         // Normal
+        //         const norm = new Float32Array(mapped, offset + 16, 3);
+        //         // Velocity
+        //         const velo = new Float32Array(mapped, offset + 32, 3);
+        //         // Force
+        //         const force = new Float32Array(mapped, offset + 48, 3);
+        //         console.log(`[${x},${y}]: v: ${p(velo)}, f: ${p(force, 8)}`);
+        //     }
+        // }
+        // this.debugBuf.unmap();
     }
 }

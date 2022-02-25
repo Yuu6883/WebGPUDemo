@@ -388,11 +388,10 @@ export class DeferredPipeline {
         this.freeModelUniformIndices.push(index);
     }
 
-    render(dt: number, output: GPUTextureView, viewProjection: Float32Array) {
+    async render(dt: number, output: GPUTextureView, viewProjection: Float32Array) {
         const device = GDevice.device;
         const queue = device.queue;
 
-        queue.writeBuffer(this.dtUB, 0, new Float32Array([dt]));
         queue.writeBuffer(this.camUB, 0, viewProjection);
         queue.writeBuffer(this.configUB, 0, this.lightNum);
         queue.writeBuffer(this.lightSB, 0, this.lightBuf);
@@ -400,18 +399,27 @@ export class DeferredPipeline {
 
         const cmd = device.createCommandEncoder();
 
-        // Cloth compute pass
-        const ClothForcePass = cmd.beginComputePass();
-        ClothForcePass.setPipeline(GCloth.forceCalcPipeline);
-        for (const cloth of this.clothDrawList) cloth.simulate(ClothForcePass);
-        ClothForcePass.endPass();
+        const OVER_SAMPLE = 25;
+        queue.writeBuffer(this.dtUB, 0, new Float32Array([dt / OVER_SAMPLE]));
+        for (let i = 0; i < OVER_SAMPLE; i++) {
+            // Cloth compute pass
+            const ClothForcePass = cmd.beginComputePass();
+            ClothForcePass.setPipeline(GCloth.forceCalcPipeline);
+            for (const cloth of this.clothDrawList) cloth.simulate(ClothForcePass);
+            ClothForcePass.endPass();
 
-        // Cloth update pass
-        const ClothUpdatePass = cmd.beginComputePass();
-        ClothUpdatePass.setBindGroup(2, GCloth.dtGroup);
-        ClothUpdatePass.setPipeline(GCloth.updatePipeline);
-        for (const cloth of this.clothDrawList) cloth.update(ClothUpdatePass);
-        ClothUpdatePass.endPass();
+            // Cloth update pass
+            const ClothUpdatePass = cmd.beginComputePass();
+            ClothUpdatePass.setBindGroup(2, GCloth.dtGroup);
+            ClothUpdatePass.setPipeline(GCloth.updatePipeline);
+            for (const cloth of this.clothDrawList) cloth.update(ClothUpdatePass);
+            ClothUpdatePass.endPass();
+        }
+
+        const ClothNormalPass = cmd.beginComputePass();
+        ClothNormalPass.setPipeline(GCloth.normalCalcPipeline);
+        for (const cloth of this.clothDrawList) cloth.recalcNormals(ClothNormalPass);
+        ClothNormalPass.endPass();
 
         // GBuffer base pass
         const GBufferPass = cmd.beginRenderPass(GBuffer.basePassDesc);
@@ -424,11 +432,14 @@ export class DeferredPipeline {
 
         for (const mesh of this.meshDrawList) mesh.draw(GBufferPass);
 
-        // Draw clothes
+        // Draw clothes & debug normal
         GBufferPass.setPipeline(GCloth.renderPipeline);
         GBufferPass.setBindGroup(1, GCloth.viewGroup);
-
         for (const cloth of this.clothDrawList) cloth.draw(GBufferPass);
+
+        GBufferPass.setPipeline(GCloth.normalDebugPipeline);
+        GBufferPass.setBindGroup(1, GCloth.debugViewGroup);
+        for (const cloth of this.clothDrawList) cloth.debug(GBufferPass);
 
         GBufferPass.endPass();
 
@@ -446,6 +457,8 @@ export class DeferredPipeline {
         DeferredPass.endPass();
 
         queue.submit([cmd.finish()]);
+
+        for (const cloth of this.clothDrawList) await cloth.postUpdate();
 
         GBuffer.deferredPassDesc.colorAttachments[0].view = null;
     }

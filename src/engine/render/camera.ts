@@ -1,11 +1,69 @@
-import { mat4, ReadonlyVec3, vec3 } from 'gl-matrix';
+import { mat4, ReadonlyVec3, vec3, glMatrix } from 'gl-matrix';
 import Scene from './scene';
+
+export default class Camera {
+    private scene: Scene;
+
+    public fov = 0;
+    public aspect = 0;
+    public nearClip = 0;
+    public farClip = 0;
+
+    public distance = 0;
+    public azimuth = 0;
+    public incline = 0;
+
+    public readonly view = new Float32Array(16);
+    public readonly pos = new Float32Array(3);
+
+    constructor(scene: Scene) {
+        this.scene = scene;
+        this.reset();
+    }
+
+    public update() {
+        const temp = mat4.create();
+        const world = mat4.create();
+        world[14] = this.distance;
+
+        const rotX = mat4.fromYRotation(mat4.create(), glMatrix.toRadian(-this.azimuth));
+        const rotY = mat4.fromXRotation(mat4.create(), glMatrix.toRadian(-this.incline));
+        mat4.mul(temp, rotX, rotY);
+
+        const final = mat4.mul(mat4.create(), temp, world);
+
+        mat4.getTranslation(this.pos, final);
+
+        const view = mat4.invert(mat4.create(), final);
+
+        const proj = mat4.perspective(
+            mat4.create(),
+            glMatrix.toRadian(this.fov),
+            this.aspect,
+            this.nearClip,
+            this.farClip,
+        );
+
+        mat4.mul(this.view, proj, view);
+    }
+
+    public reset() {
+        this.fov = 60;
+        this.aspect = 1.33;
+        this.nearClip = 0.1;
+        this.farClip = 1000;
+
+        this.distance = 200;
+        this.azimuth = 0;
+        this.incline = 20;
+    }
+}
 
 const UP = new Float32Array([0, 1, 0]);
 
 const temp = new Float32Array(3);
 
-export default class Camera {
+export class OldCamera {
     private scene: Scene;
 
     private _pov = (2 * Math.PI) / 5;
@@ -26,7 +84,7 @@ export default class Camera {
             1,
             2000,
         );
-        this._pos.set([10, 10, 10]);
+        this._pos.set([100, 100, 100]);
         this.lookAt([0, 0, 0]);
     }
 

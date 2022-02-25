@@ -16,8 +16,9 @@ fn main([[location(0)]] fragPosition: vec3<f32>,
     output.normal   = vec4<f32>(fragNormal, 1.0);
 
     // Faking some kind of checkerboard texture
-    let uv = floor(30.0 * fragUV);
-    let c = 0.5 + 0.5 * ((uv.x + uv.y) - 2.0 * floor((uv.x + uv.y) / 2.0));
+    // let uv = floor(30.0 * fragUV);
+    // let c = 0.5 + 0.5 * ((uv.x + uv.y) - 2.0 * floor((uv.x + uv.y) / 2.0));
+    let c = 0.5;
     output.albedo = vec4<f32>(c, c, c, 1.0);
     return output;
 }

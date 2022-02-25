@@ -1,5 +1,5 @@
 export interface EngineParam {
-    canvas: OffscreenCanvas;
+    canvas: HTMLCanvasElement | OffscreenCanvas;
     screen: {
         width: number;
         height: number;
