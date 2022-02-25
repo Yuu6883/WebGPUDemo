@@ -13,7 +13,7 @@ const App = () => {
         //     console.log(e.data);
         // });
 
-        const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+        const canvas = document.getElementById('webgpu') as HTMLCanvasElement;
         // const offscreen = canvas.transferControlToOffscreen();
 
         const params: EngineParam = {

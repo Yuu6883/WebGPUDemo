@@ -6,6 +6,8 @@ import Camera from './camera';
 import { DeferredPipeline } from './pipeline';
 import PointLight from './pointlight';
 import Scene from './scene';
+import Stats from 'stats-js';
+import { GUI } from 'dat.gui';
 
 export const GDevice: {
     readyState: 0 | 1 | 2;
@@ -33,6 +35,9 @@ export default class Renderer {
     private canvas: HTMLCanvasElement | OffscreenCanvas;
     private ctx: GPUCanvasContext;
 
+    private stats = new Stats();
+    private gui = new GUI();
+
     private static DefaultDepthStencilTex: GPUTexture = null;
     static DefaultDepthStencilView: GPUTextureView = null;
 
@@ -51,6 +56,8 @@ export default class Renderer {
         this.canvas = engine.params.canvas;
         this.ctx = this.canvas.getContext('webgpu');
         this.dimension = [this.canvas.width, this.canvas.height];
+
+        document.body.appendChild(this.stats.dom);
     }
 
     async init() {
@@ -116,13 +123,41 @@ export default class Renderer {
 
         this.pipeline.updateLight();
 
+        const gui = this.gui;
+        const options = {
+            'Debug Normal': false,
+            'Wind X': 2,
+            'Wind Y': -1,
+            'Wind Z': 5,
+            'Floor Y': 5,
+            'Simulation Speed': 1,
+            'Reset Wind': function () {
+                options['Wind X'] = options['Wind Y'] = options['Wind Z'] = 0;
+                updateWind();
+                gui.updateDisplay();
+            },
+        };
+
+        const updateWind = () => {
+            this.cloth.setWindSpeed([
+                options['Wind X'],
+                options['Wind Y'],
+                options['Wind Z'],
+            ]);
+        };
+
+        const updateFloor = () => {
+            this.cloth.setFloor(options['Floor Y']);
+        };
+
         const DIM = 64;
         this.cloth = new Cloth(this.pipeline, DIM, DIM, {
             mass: 1,
             rest_length: 100 / DIM,
             springConstant: DIM * DIM,
             dampingConstant: 50,
-            wind: [2, -1, 5],
+            floor: options['Floor Y'],
+            wind: [options['Wind X'], options['Wind Y'], options['Wind Z']],
             gravity: [0, -9.81, 0],
         });
         this.cloth.transform.position = [-DIM / 2, -DIM / 2, 0];
@@ -135,6 +170,30 @@ export default class Renderer {
 
         console.log(GDevice.device.limits);
         // setTimeout(() => this.stop(), 100);
+
+        // Wind speed range
+        const WR = 10;
+
+        gui.add(options, 'Debug Normal').onChange(v => (Cloth.debug = v));
+        gui.add(options, 'Wind X', -WR, WR, 0.01).onChange(updateWind);
+        gui.add(options, 'Wind Y', -WR, WR, 0.01).onChange(updateWind);
+        gui.add(options, 'Wind Z', -WR, WR, 0.01).onChange(updateWind);
+        gui.add(options, 'Floor Y', 0, 1.5 * DIM, 0.01).onChange(updateFloor);
+        gui.add(options, 'Simulation Speed', 0.1, 25, 0.01).onChange(
+            v => (Cloth.sampleRate = 1 / v),
+        );
+        gui.add(options, 'Reset Wind');
+
+        this.cloth.fixedPoints.forEach(({ row, col, x, y }, i) => {
+            console.log({ row, col, x, y });
+
+            const coord = { x, y };
+            const updateCoord = () =>
+                this.cloth.setFixedPointPosition(row, col, coord.x, coord.y);
+            const folder = gui.addFolder(`Fixed Point#${i}`);
+            folder.add(coord, 'x', -DIM * 2, DIM * 2, 0.01).onChange(updateCoord);
+            folder.add(coord, 'y', -DIM * 2, DIM * 2, 0.01).onChange(updateCoord);
+        });
     }
 
     resize(w: number, h: number) {
@@ -173,6 +232,8 @@ export default class Renderer {
         if (this.RAF) return;
 
         const cb = async (now: number) => {
+            this.stats.begin();
+
             const t = now * 0.001;
 
             this.mainCamera.update();
@@ -189,6 +250,7 @@ export default class Renderer {
 
             await this.pipeline.render(
                 dt,
+                now,
                 this.ctx.getCurrentTexture().createView(),
                 this.mainCamera.view,
             );
@@ -197,6 +259,8 @@ export default class Renderer {
             this.RAF = requestAnimationFrame(cb);
             this.lastRAF = now;
             // }, 1000);
+
+            this.stats.end();
         };
         this.RAF = requestAnimationFrame(cb);
     }

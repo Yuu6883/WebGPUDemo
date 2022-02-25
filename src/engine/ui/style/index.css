@@ -13,7 +13,8 @@ body {
     scroll-behavior: smooth;
     font-family: sans-serif;
 }
-canvas {
+
+#webgpu {
     position: fixed;
     width: 100%;
     height: 100%;

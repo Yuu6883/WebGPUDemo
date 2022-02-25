@@ -27,10 +27,12 @@ export default class CameraRotator {
 
         window.addEventListener('contextmenu', e => e.preventDefault());
         window.addEventListener('mousemove', e => this.onMouseMove(e.clientX, e.clientY));
-        window.addEventListener('mousedown', e =>
-            this.onClick(e.button, InputState.MOUSE_DOWN, e.clientX, e.clientY),
-        );
+        window.addEventListener('mousedown', e => {
+            if (e.target != document.body) return;
+            this.onClick(e.button, InputState.MOUSE_DOWN, e.clientX, e.clientY);
+        });
         window.addEventListener('mouseup', e => {
+            if (e.target != document.body) return;
             this.onClick(e.button, InputState.MOUSE_UP, e.clientX, e.clientY);
         });
         window.addEventListener('wheel', e => this.onMouseWheel(e.deltaY));

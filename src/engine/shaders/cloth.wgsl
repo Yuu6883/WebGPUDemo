@@ -19,6 +19,7 @@ struct ClothPointShared {
     rest_length:      f32;
     spring_constant:  f32;
     damping_constant: f32;
+    floor_y:          f32;
 };
 
 [[block]] struct Dimension {
@@ -333,5 +334,6 @@ fn update(
 
     let a = p.force / constants.mass;
     points.data[offset].velocity = p.velocity + a * dt.value;
-    points.data[offset].position = p.position + p.velocity * dt.value;
+    let pos = p.position + p.velocity * dt.value;
+    points.data[offset].position = vec4<f32>(pos.x, max(pos.y, constants.floor_y), pos.zw);
 }

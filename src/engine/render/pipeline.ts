@@ -388,7 +388,12 @@ export class DeferredPipeline {
         this.freeModelUniformIndices.push(index);
     }
 
-    async render(dt: number, output: GPUTextureView, viewProjection: Float32Array) {
+    async render(
+        dt: number,
+        now: number,
+        output: GPUTextureView,
+        viewProjection: Float32Array,
+    ) {
         const device = GDevice.device;
         const queue = device.queue;
 
@@ -399,9 +404,18 @@ export class DeferredPipeline {
 
         const cmd = device.createCommandEncoder();
 
-        const OVER_SAMPLE = 25;
-        queue.writeBuffer(this.dtUB, 0, new Float32Array([dt / OVER_SAMPLE]));
-        for (let i = 0; i < OVER_SAMPLE; i++) {
+        const SAMPLE_STEP = 1;
+
+        // Milliseconds
+        queue.writeBuffer(this.dtUB, 0, new Float32Array([SAMPLE_STEP * 0.001]));
+
+        let loop = 0;
+        while (Cloth.sampleTime < now) {
+            Cloth.sampleTime += SAMPLE_STEP * Cloth.sampleRate;
+            loop++;
+        }
+
+        for (let i = 0; i < Math.min(50, loop); i++) {
             // Cloth compute pass
             const ClothForcePass = cmd.beginComputePass();
             ClothForcePass.setPipeline(GCloth.forceCalcPipeline);
@@ -432,14 +446,16 @@ export class DeferredPipeline {
 
         for (const mesh of this.meshDrawList) mesh.draw(GBufferPass);
 
-        // Draw clothes & debug normal
-        GBufferPass.setPipeline(GCloth.renderPipeline);
-        GBufferPass.setBindGroup(1, GCloth.viewGroup);
-        for (const cloth of this.clothDrawList) cloth.draw(GBufferPass);
-
-        GBufferPass.setPipeline(GCloth.normalDebugPipeline);
-        GBufferPass.setBindGroup(1, GCloth.debugViewGroup);
-        for (const cloth of this.clothDrawList) cloth.debug(GBufferPass);
+        // Draw clothes / debug normal
+        if (Cloth.debug) {
+            GBufferPass.setPipeline(GCloth.normalDebugPipeline);
+            GBufferPass.setBindGroup(1, GCloth.debugViewGroup);
+            for (const cloth of this.clothDrawList) cloth.debug(GBufferPass);
+        } else {
+            GBufferPass.setPipeline(GCloth.renderPipeline);
+            GBufferPass.setBindGroup(1, GCloth.viewGroup);
+            for (const cloth of this.clothDrawList) cloth.draw(GBufferPass);
+        }
 
         GBufferPass.endPass();
 

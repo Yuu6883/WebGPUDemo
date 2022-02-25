@@ -1,4 +1,4 @@
-import { ReadonlyVec3 } from 'gl-matrix';
+import { ReadonlyVec2, ReadonlyVec3 } from 'gl-matrix';
 import Transform from '../core/transform';
 import { checkDevice, GDevice } from '../render/base';
 import { Renderable } from '../render/pass';
@@ -10,6 +10,7 @@ export interface ClothConstants {
     rest_length: number;
     springConstant: number;
     dampingConstant: number;
+    floor: number;
     gravity: ReadonlyVec3;
     wind: ReadonlyVec3;
 }
@@ -61,7 +62,7 @@ export default class Cloth implements Renderable {
     private readonly dimUB: GPUBuffer;
     private readonly vectorUB: GPUBuffer;
 
-    private readonly constants = new Float32Array(4);
+    private readonly constants = new Float32Array(5);
     private readonly dimension = new Uint32Array(2);
     private readonly vectors = new Float32Array(8);
 
@@ -75,6 +76,11 @@ export default class Cloth implements Renderable {
     private readonly debugBuf: GPUBuffer;
 
     private readonly totalIndices: number;
+
+    public static debug = false;
+
+    public static sampleRate = 1;
+    public static sampleTime = performance.now();
 
     public static readonly VertexLayout: GPUVertexBufferLayout = {
         arrayStride: Cloth.STRIDE,
@@ -123,6 +129,9 @@ export default class Cloth implements Renderable {
             },
         ],
     };
+
+    public readonly fixedPoints: { row: number; col: number; x: number; y: number }[] =
+        [];
 
     static initPipeline(camUB: GPUBuffer, dtUB: GPUBuffer) {
         checkDevice();
@@ -272,6 +281,7 @@ export default class Cloth implements Renderable {
             constants.rest_length,
             constants.springConstant,
             constants.dampingConstant,
+            constants.floor,
         ]);
 
         this.vectors.set(constants.wind, 0);
@@ -280,10 +290,8 @@ export default class Cloth implements Renderable {
         this.pointBuffer = device.createBuffer({
             size: Cloth.STRIDE * this.dimension[0] * this.dimension[1],
             usage:
-                GPUBufferUsage.STORAGE |
-                GPUBufferUsage.VERTEX |
-                // GPUBufferUsage.COPY_DST |
-                GPUBufferUsage.COPY_SRC,
+                GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            // GPUBufferUsage.COPY_SRC,
             mappedAtCreation: true,
         });
 
@@ -297,23 +305,28 @@ export default class Cloth implements Renderable {
         for (let x = 0; x < this.dimension[0]; x++) {
             for (let y = 0; y < this.dimension[1]; y++) {
                 const offset = Cloth.STRIDE * (y * this.dimension[0] + x);
-                // Position (set top row to fixed points by setting their position.w to -1)
-                const top = y === this.dimension[1] - 1;
+                // Position (set 2 corners to fixed points by setting their position.w to -1)
+                const fixed =
+                    y === this.dimension[1] - 1 && (!x || x === this.dimension[0] - 1);
+
                 new Float32Array(mapped, offset, 4).set([
                     x * RLEN,
                     y * RLEN,
                     0,
-                    top ? -1 : 0,
+                    fixed ? -1 : 0,
                 ]);
                 // Normal
                 new Float32Array(mapped, offset + 16, 3).set([0, 0, 1]);
+
+                if (fixed)
+                    this.fixedPoints.push({ row: y, col: x, x: x * RLEN, y: y * RLEN });
             }
         }
         this.pointBuffer.unmap();
 
         this.constUB = device.createBuffer({
             size: this.constants.byteLength,
-            usage: GPUBufferUsage.UNIFORM,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             mappedAtCreation: true,
         });
 
@@ -498,6 +511,25 @@ export default class Cloth implements Renderable {
         this.transform.updateInverse();
     }
 
+    setWindSpeed(v: ReadonlyVec3) {
+        this.vectors.set(v, 0);
+        GDevice.device.queue.writeBuffer(this.vectorUB, 0, this.vectors, 0, 3);
+    }
+
+    setFloor(y: number) {
+        this.constants[4] = y;
+        GDevice.device.queue.writeBuffer(this.constUB, 0, this.constants);
+    }
+
+    setFixedPointPosition(row: number, col: number, x: number, y: number) {
+        const offset = Cloth.STRIDE * (row * this.dimension[0] + col);
+        GDevice.device.queue.writeBuffer(
+            this.pointBuffer,
+            offset,
+            new Float32Array([x, y]),
+        );
+    }
+
     free() {
         this.pipeline.freeUniformIndex(this.uniformIndex);
         this.ibo?.destroy();
@@ -538,10 +570,10 @@ export default class Cloth implements Renderable {
     }
 
     draw(pass: GPURenderPassEncoder) {
-        // pass.setBindGroup(0, this.modelGroup);
-        // pass.setVertexBuffer(0, this.pointBuffer);
-        // pass.setIndexBuffer(this.ibo, 'uint32');
-        // pass.drawIndexed(this.totalIndices);
+        pass.setBindGroup(0, this.modelGroup);
+        pass.setVertexBuffer(0, this.pointBuffer);
+        pass.setIndexBuffer(this.ibo, 'uint32');
+        pass.drawIndexed(this.totalIndices);
     }
 
     debug(pass: GPURenderPassEncoder) {
