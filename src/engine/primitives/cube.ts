@@ -1,15 +1,15 @@
-import { ReadonlyVec2, ReadonlyVec3, vec3 } from 'gl-matrix';
-import { DeferredPipeline } from '../render/pipeline';
+import { ReadonlyVec3, vec3 } from 'gl-matrix';
+import { RenderPass } from '../render/interfaces';
 import StaticMesh from '../render/staticmesh';
 
 // prettier-ignore
-const CubePositions = new Float32Array(3 * 36);
+const positions = new Float32Array(3 * 36);
 
 // prettier-ignore
-const CubeNormals = new Float32Array(3 * 36);
+const normals = new Float32Array(3 * 36);
 
 // prettier-ignore
-const CubeUVs = new Float32Array(2 * 36);
+const uvs = new Float32Array(2 * 36);
 
 const p1 = new Float32Array(3);
 const p2 = new Float32Array(3);
@@ -31,8 +31,8 @@ const initOneFace = (
 
     for (let i = 0; i < 6; i++) {
         const elem_offset = (offset + i) * 3;
-        CubePositions.set(points[[a, b, c, a, c, d][i]], elem_offset);
-        CubeNormals.set(norm, elem_offset);
+        positions.set(points[[a, b, c, a, c, d][i]], elem_offset);
+        normals.set(norm, elem_offset);
     }
 };
 
@@ -54,9 +54,17 @@ initOneFace(6, 5, 1, 2, POINTS, 3 * 6);
 initOneFace(4, 5, 6, 7, POINTS, 4 * 6);
 initOneFace(5, 4, 0, 1, POINTS, 5 * 6);
 
+// let out: string[] = [];
+// for (let i = 0; i < positions.length; i += 3) {
+//     out.push(`vec3<f32>(${positions[i]}, ${positions[i + 1]}, ${positions[i + 2]})`);
+// }
+// console.log(out.join(',\n'));
+
+export const CubePositions = positions;
+
 export default class Cube extends StaticMesh {
-    constructor(pipeline: DeferredPipeline, extent: ReadonlyVec2 = [1, 1]) {
-        super(pipeline, CubePositions, CubeNormals, CubeUVs);
+    constructor(pass: RenderPass, extent: ReadonlyVec3 = [1, 1, 1]) {
+        super(pass, positions, normals, uvs);
         // TODO: generate UVs and set scale
     }
 }

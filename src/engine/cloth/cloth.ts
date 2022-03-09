@@ -1,8 +1,8 @@
-import { ReadonlyVec2, ReadonlyVec3 } from 'gl-matrix';
+import { ReadonlyVec3 } from 'gl-matrix';
 import Transform from '../core/transform';
 import { checkDevice, GDevice } from '../render/base';
-import { Renderable } from '../render/pass';
-import { DeferredPipeline, GBuffer } from '../render/pipeline';
+import { Renderable, RenderPass } from '../render/interfaces';
+import { GBuffer } from '../render/deferred-pass';
 import ClothWGSL from '../shaders/cloth.wgsl';
 
 export interface ClothConstants {
@@ -16,10 +16,10 @@ export interface ClothConstants {
 }
 
 export const GCloth: {
-    shader: GPUShaderModule;
+    ready: boolean;
     renderPipeline: GPURenderPipeline;
     normalDebugPipeline: GPURenderPipeline;
-    forceCalcPipeline: GPUComputePipeline;
+    simPipeline: GPUComputePipeline;
     triangleGenPipeline: GPUComputePipeline;
     normalCalcPipeline: GPUComputePipeline;
     updatePipeline: GPUComputePipeline;
@@ -27,10 +27,10 @@ export const GCloth: {
     viewGroup: GPUBindGroup;
     debugViewGroup: GPUBindGroup;
 } = {
-    shader: null,
+    ready: false,
     renderPipeline: null,
     normalDebugPipeline: null,
-    forceCalcPipeline: null,
+    simPipeline: null,
     normalCalcPipeline: null,
     triangleGenPipeline: null,
     updatePipeline: null,
@@ -57,7 +57,7 @@ export default class Cloth implements Renderable {
     private readonly u_computeGroup: GPUBindGroup;
     private readonly u_uniformGroup: GPUBindGroup;
 
-    private readonly pointBuffer: GPUBuffer;
+    private readonly particleBuf: GPUBuffer;
     private readonly constUB: GPUBuffer;
     private readonly dimUB: GPUBuffer;
     private readonly vectorUB: GPUBuffer;
@@ -68,10 +68,10 @@ export default class Cloth implements Renderable {
 
     private readonly ibo: GPUBuffer;
 
-    public readonly uniformIndex: number;
+    private readonly uniformIndex: number;
     private readonly modelGroup: GPUBindGroup;
     private readonly debuModelGroup: GPUBindGroup;
-    private readonly pipeline: DeferredPipeline;
+    private readonly pass: RenderPass;
 
     private readonly debugBuf: GPUBuffer;
 
@@ -82,7 +82,7 @@ export default class Cloth implements Renderable {
     public static sampleRate = 1;
     public static sampleTime = performance.now();
 
-    public static readonly VertexLayout: GPUVertexBufferLayout = {
+    private static readonly VertexLayout: GPUVertexBufferLayout = {
         arrayStride: Cloth.STRIDE,
         attributes: [
             {
@@ -106,7 +106,7 @@ export default class Cloth implements Renderable {
         ],
     };
 
-    public static readonly NormalDebugVertexLayout: GPUVertexBufferLayout = {
+    private static readonly NormalDebugVertexLayout: GPUVertexBufferLayout = {
         arrayStride: Cloth.STRIDE / 2,
         attributes: [
             {
@@ -133,100 +133,129 @@ export default class Cloth implements Renderable {
     public readonly fixedPoints: { row: number; col: number; x: number; y: number }[] =
         [];
 
-    static initPipeline(camUB: GPUBuffer, dtUB: GPUBuffer) {
+    static async initPipeline(camUB: GPUBuffer, dtUB: GPUBuffer) {
         checkDevice();
         const device = GDevice.device;
 
-        GCloth.shader = device.createShaderModule({
+        const shader = device.createShaderModule({
             code: ClothWGSL,
         });
 
-        GCloth.forceCalcPipeline = device.createComputePipeline({
-            compute: {
-                module: GCloth.shader,
-                entryPoint: 'calc_forces',
-            },
-        });
+        const tasks: Promise<any>[] = [];
 
-        GCloth.renderPipeline = device.createRenderPipeline({
-            vertex: {
-                module: GBuffer.basePassVertShader,
-                entryPoint: 'main',
-                buffers: [Cloth.VertexLayout],
-            },
-            fragment: {
-                module: GBuffer.basePassFragShader,
-                entryPoint: 'main',
-                targets: [
-                    // position
-                    { format: 'rgba32float' },
-                    // normal
-                    { format: 'rgba32float' },
-                    // albedo
-                    { format: 'bgra8unorm' },
-                ],
-            },
-            depthStencil: {
-                depthWriteEnabled: true,
-                depthCompare: 'less',
-                format: 'depth24plus',
-            },
-            primitive: {
-                // topology: 'line-list',
-                topology: 'triangle-list',
-                cullMode: 'none',
-            },
-        });
+        tasks.push(
+            device
+                .createComputePipelineAsync({
+                    compute: {
+                        module: shader,
+                        entryPoint: 'calc_forces',
+                    },
+                })
+                .then(p => (GCloth.simPipeline = p)),
+        );
 
-        GCloth.normalDebugPipeline = device.createRenderPipeline({
-            vertex: {
-                module: GBuffer.basePassVertShader,
-                entryPoint: 'main',
-                buffers: [Cloth.NormalDebugVertexLayout],
-            },
-            fragment: {
-                module: GBuffer.basePassFragShader,
-                entryPoint: 'main',
-                targets: [
-                    // position
-                    { format: 'rgba32float' },
-                    // normal
-                    { format: 'rgba32float' },
-                    // albedo
-                    { format: 'bgra8unorm' },
-                ],
-            },
-            depthStencil: {
-                depthWriteEnabled: true,
-                depthCompare: 'less',
-                format: 'depth24plus',
-            },
-            primitive: {
-                topology: 'line-list',
-                cullMode: 'none',
-            },
-        });
+        // TODO: move the shader modules
+        tasks.push(
+            device
+                .createRenderPipelineAsync({
+                    vertex: {
+                        module: GBuffer.basePassVertShader,
+                        entryPoint: 'main',
+                        buffers: [Cloth.VertexLayout],
+                    },
+                    fragment: {
+                        module: GBuffer.basePassFragShader,
+                        entryPoint: 'main',
+                        targets: [
+                            // position
+                            { format: 'rgba32float' },
+                            // normal
+                            { format: 'rgba32float' },
+                            // albedo
+                            { format: 'bgra8unorm' },
+                        ],
+                    },
+                    depthStencil: {
+                        depthWriteEnabled: true,
+                        depthCompare: 'less',
+                        format: 'depth24plus',
+                    },
+                    primitive: {
+                        // topology: 'line-list',
+                        topology: 'triangle-list',
+                        cullMode: 'none',
+                    },
+                })
+                .then(p => (GCloth.renderPipeline = p)),
+        );
 
-        GCloth.triangleGenPipeline = device.createComputePipeline({
-            compute: {
-                module: GCloth.shader,
-                entryPoint: 'init_indices',
-            },
-        });
+        tasks.push(
+            device
+                .createRenderPipelineAsync({
+                    vertex: {
+                        module: GBuffer.basePassVertShader,
+                        entryPoint: 'main',
+                        buffers: [Cloth.NormalDebugVertexLayout],
+                    },
+                    fragment: {
+                        module: GBuffer.basePassFragShader,
+                        entryPoint: 'main',
+                        targets: [
+                            // position
+                            { format: 'rgba32float' },
+                            // normal
+                            { format: 'rgba32float' },
+                            // albedo
+                            { format: 'bgra8unorm' },
+                        ],
+                    },
+                    depthStencil: {
+                        depthWriteEnabled: true,
+                        depthCompare: 'less',
+                        format: 'depth24plus',
+                    },
+                    primitive: {
+                        topology: 'line-list',
+                        cullMode: 'none',
+                    },
+                })
+                .then(p => (GCloth.normalDebugPipeline = p)),
+        );
 
-        GCloth.normalCalcPipeline = device.createComputePipeline({
-            compute: {
-                module: GCloth.shader,
-                entryPoint: 'calc_normal',
-            },
-        });
+        tasks.push(
+            device
+                .createComputePipelineAsync({
+                    compute: {
+                        module: shader,
+                        entryPoint: 'init_indices',
+                    },
+                })
+                .then(p => (GCloth.triangleGenPipeline = p)),
+        );
 
-        GCloth.updatePipeline = device.createComputePipeline({
-            compute: {
-                module: GCloth.shader,
-                entryPoint: 'update',
-            },
-        });
+        tasks.push(
+            device
+                .createComputePipelineAsync({
+                    compute: {
+                        module: shader,
+                        entryPoint: 'calc_normal',
+                    },
+                })
+                .then(p => (GCloth.normalCalcPipeline = p)),
+        );
+
+        tasks.push(
+            device
+                .createComputePipelineAsync({
+                    compute: {
+                        module: shader,
+                        entryPoint: 'update',
+                    },
+                })
+                .then(p => (GCloth.updatePipeline = p)),
+        );
+
+        await Promise.all(tasks);
 
         GCloth.viewGroup = device.createBindGroup({
             layout: GCloth.renderPipeline.getBindGroupLayout(1),
@@ -263,16 +292,19 @@ export default class Cloth implements Renderable {
                 },
             ],
         });
+
+        GCloth.ready = true;
+        Cloth.sampleTime = performance.now();
     }
 
     constructor(
-        pipeline: DeferredPipeline,
+        pass: RenderPass,
         width: number,
         height: number,
         constants: ClothConstants,
     ) {
         checkDevice();
-        this.pipeline = pipeline;
+        this.pass = pass;
         const device = GDevice.device;
 
         this.dimension.set([width, height]);
@@ -287,7 +319,7 @@ export default class Cloth implements Renderable {
         this.vectors.set(constants.wind, 0);
         this.vectors.set(constants.gravity, 4);
 
-        this.pointBuffer = device.createBuffer({
+        this.particleBuf = device.createBuffer({
             size: Cloth.STRIDE * this.dimension[0] * this.dimension[1],
             usage:
                 GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -301,7 +333,7 @@ export default class Cloth implements Renderable {
         });
 
         const RLEN = constants.rest_length;
-        const mapped = this.pointBuffer.getMappedRange();
+        const mapped = this.particleBuf.getMappedRange();
         for (let x = 0; x < this.dimension[0]; x++) {
             for (let y = 0; y < this.dimension[1]; y++) {
                 const offset = Cloth.STRIDE * (y * this.dimension[0] + x);
@@ -322,7 +354,7 @@ export default class Cloth implements Renderable {
                     this.fixedPoints.push({ row: y, col: x, x: x * RLEN, y: y * RLEN });
             }
         }
-        this.pointBuffer.unmap();
+        this.particleBuf.unmap();
 
         this.constUB = device.createBuffer({
             size: this.constants.byteLength,
@@ -355,17 +387,17 @@ export default class Cloth implements Renderable {
         this.vectorUB.unmap();
 
         this.s_computeGroup = device.createBindGroup({
-            layout: GCloth.forceCalcPipeline.getBindGroupLayout(0),
+            layout: GCloth.simPipeline.getBindGroupLayout(0),
             entries: [
                 {
                     binding: 0,
-                    resource: { buffer: this.pointBuffer },
+                    resource: { buffer: this.particleBuf },
                 },
             ],
         });
 
         this.s_uniformGroup = device.createBindGroup({
-            layout: GCloth.forceCalcPipeline.getBindGroupLayout(1),
+            layout: GCloth.simPipeline.getBindGroupLayout(1),
             entries: [this.constUB, this.dimUB, this.vectorUB].map((buffer, binding) => ({
                 binding,
                 resource: { buffer },
@@ -377,7 +409,7 @@ export default class Cloth implements Renderable {
             entries: [
                 {
                     binding: 0,
-                    resource: { buffer: this.pointBuffer },
+                    resource: { buffer: this.particleBuf },
                 },
             ],
         });
@@ -397,7 +429,7 @@ export default class Cloth implements Renderable {
             entries: [
                 {
                     binding: 0,
-                    resource: { buffer: this.pointBuffer },
+                    resource: { buffer: this.particleBuf },
                 },
             ],
         });
@@ -457,7 +489,7 @@ export default class Cloth implements Renderable {
             indicesPass.setBindGroup(0, indicesGroup0);
             indicesPass.setBindGroup(1, indicesGroup1);
             indicesPass.dispatch(GridX, GridY);
-            indicesPass.endPass();
+            indicesPass.end();
 
             // const testBuf = device.createBuffer({
             //     size: idxBufSize,
@@ -475,7 +507,7 @@ export default class Cloth implements Renderable {
             // });
         }
 
-        const { index, offset, buffer, model } = pipeline.allocUniform();
+        const { index, offset, buffer, model } = pass.allocUniform();
 
         this.uniformIndex = index;
         this.modelGroup = device.createBindGroup({
@@ -524,17 +556,17 @@ export default class Cloth implements Renderable {
     setFixedPointPosition(row: number, col: number, x: number, y: number) {
         const offset = Cloth.STRIDE * (row * this.dimension[0] + col);
         GDevice.device.queue.writeBuffer(
-            this.pointBuffer,
+            this.particleBuf,
             offset,
             new Float32Array([x, y]),
         );
     }
 
     free() {
-        this.pipeline.freeUniformIndex(this.uniformIndex);
+        this.pass.freeUniformIndex(this.uniformIndex);
         this.ibo?.destroy();
 
-        this.pointBuffer.destroy();
+        this.particleBuf.destroy();
         this.constUB.destroy();
         this.dimUB.destroy();
         this.vectorUB.destroy();
@@ -571,14 +603,14 @@ export default class Cloth implements Renderable {
 
     draw(pass: GPURenderPassEncoder) {
         pass.setBindGroup(0, this.modelGroup);
-        pass.setVertexBuffer(0, this.pointBuffer);
+        pass.setVertexBuffer(0, this.particleBuf);
         pass.setIndexBuffer(this.ibo, 'uint32');
         pass.drawIndexed(this.totalIndices);
     }
 
     debug(pass: GPURenderPassEncoder) {
         pass.setBindGroup(0, this.debuModelGroup);
-        pass.setVertexBuffer(0, this.pointBuffer);
+        pass.setVertexBuffer(0, this.particleBuf);
         pass.setIndexBuffer(this.ibo, 'uint32');
         pass.draw(this.dimension[0] * this.dimension[1] * 2);
     }

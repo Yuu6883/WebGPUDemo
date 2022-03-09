@@ -10,11 +10,11 @@ struct ClothPointShared {
     v: vec4<f32>;
 };
 
-[[block]] struct ClothPoints {
+struct ClothPoints {
     data: array<ClothPoint>;
 };
 
-[[block]] struct SimulationConstants {
+struct SimulationConstants {
     mass:             f32;
     rest_length:      f32;
     spring_constant:  f32;
@@ -22,34 +22,34 @@ struct ClothPointShared {
     floor_y:          f32;
 };
 
-[[block]] struct Dimension {
+struct Dimension {
     size: vec2<u32>;
 };
 
-[[block]] struct Vectors {
+struct Vectors {
     wind: vec3<f32>;
     gravity: vec3<f32>;
 };
 
-[[block]] struct Indices {
-    data: [[stride(12)]] array<array<u32, 3>>;
+struct Indices {
+    data: array<array<u32, 3>>;
 };
 
 // Group 1 is per cloth
-[[group(1), binding(0)]] var<uniform> constants: SimulationConstants;
-[[group(1), binding(1)]] var<uniform> dimension: Dimension;
-[[group(1), binding(2)]] var<uniform> vectors: Vectors;
+@group(1) @binding(0) var<uniform> constants: SimulationConstants;
+@group(1) @binding(1) var<uniform> dimension: Dimension;
+@group(1) @binding(2) var<uniform> vectors: Vectors;
 
 let TILE_SIZE = 16;
 let TILE_SIZE_U = 16u;
 let INNER_TILE = 14u;
 
-[[group(0), binding(0)]] var<storage, read_write> indices: Indices;
+@group(0) @binding(0) var<storage, read_write> indices: Indices;
 
-[[stage(compute), workgroup_size(TILE_SIZE, TILE_SIZE, 1)]]
+@stage(compute) @workgroup_size(TILE_SIZE, TILE_SIZE, 1)
 fn init_indices(
-  [[builtin(workgroup_id)]]        blockIdx :  vec3<u32>,
-  [[builtin(local_invocation_id)]] threadIdx : vec3<u32>
+  @builtin(workgroup_id)        blockIdx :  vec3<u32>,
+  @builtin(local_invocation_id) threadIdx : vec3<u32>
 ) {
     let tx = threadIdx.x;
     let ty = threadIdx.y;
@@ -77,7 +77,7 @@ fn init_indices(
     indices.data[offset + 1u][2] = (row + 1u) * out_w + col + 1u;
 }
 
-[[group(0), binding(0)]] var<storage, read_write> points: ClothPoints;
+@group(0) @binding(0) var<storage, read_write> points: ClothPoints;
 
 var<private> force: vec3<f32>;
 var<private> p1: vec3<f32>;
@@ -142,10 +142,10 @@ fn aerodynamic(p2: ClothPointShared, p3: ClothPointShared) {
 
 var<workgroup> tile : array<array<ClothPointShared, 16>, 16>;
 
-[[stage(compute), workgroup_size(TILE_SIZE, TILE_SIZE, 1)]]
+@stage(compute) @workgroup_size(TILE_SIZE, TILE_SIZE, 1)
 fn calc_forces(
-  [[builtin(workgroup_id)]]        blockIdx :  vec3<u32>,
-  [[builtin(local_invocation_id)]] threadIdx : vec3<u32>
+  @builtin(workgroup_id)        blockIdx :  vec3<u32>,
+  @builtin(local_invocation_id) threadIdx : vec3<u32>
 ) {
     let tx = threadIdx.x;
     let ty = threadIdx.y;
@@ -235,10 +235,10 @@ fn triangle_normal(p2: vec4<f32>, p3: vec4<f32>) {
 
 var<workgroup> p_tile : array<array<vec4<f32>, 16>, 16>;
 
-[[stage(compute), workgroup_size(TILE_SIZE, TILE_SIZE, 1)]]
+@stage(compute) @workgroup_size(TILE_SIZE, TILE_SIZE, 1)
 fn calc_normal(
-    [[builtin(workgroup_id)]]        blockIdx :  vec3<u32>,
-    [[builtin(local_invocation_id)]] threadIdx : vec3<u32>
+    @builtin(workgroup_id)        blockIdx :  vec3<u32>,
+    @builtin(local_invocation_id) threadIdx : vec3<u32>
 ) {
     let tx = threadIdx.x;
     let ty = threadIdx.y;
@@ -303,16 +303,16 @@ fn calc_normal(
     points.data[row_o * out_w + col_o].force = points.data[row_o * out_w + col_o].position + vec4<f32>(norm, 0.0);
 }
 
-[[block]] struct DT {
+struct DT {
     value: f32;
 };
 
-[[group(2), binding(0)]] var<uniform> dt: DT;
+@group(2) @binding(0) var<uniform> dt: DT;
 
-[[stage(compute), workgroup_size(256)]]
+@stage(compute) @workgroup_size(256)
 fn update(
-  [[builtin(workgroup_id)]]        blockIdx :  vec3<u32>,
-  [[builtin(local_invocation_id)]] threadIdx : vec3<u32>
+  @builtin(workgroup_id)        blockIdx :  vec3<u32>,
+  @builtin(local_invocation_id) threadIdx : vec3<u32>
 ) {
     let offset = i32(blockIdx.x * 256u + threadIdx.x);
     

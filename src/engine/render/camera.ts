@@ -13,8 +13,7 @@ export default class Camera {
     public azimuth = 0;
     public incline = 0;
 
-    public readonly view = new Float32Array(16);
-    public readonly pos = new Float32Array(3);
+    public readonly view = new Float32Array(16 + 4);
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -32,7 +31,7 @@ export default class Camera {
 
         const final = mat4.mul(mat4.create(), temp, world);
 
-        mat4.getTranslation(this.pos, final);
+        mat4.getTranslation(this.view.subarray(16), final);
 
         const view = mat4.invert(mat4.create(), final);
 

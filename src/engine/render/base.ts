@@ -3,11 +3,12 @@ import Engine from '../core/engine';
 import CameraRotator from '../input/input';
 import Cube from '../primitives/cube';
 import Camera from './camera';
-import { DeferredPipeline } from './pipeline';
+import { DeferredPass } from './deferred-pass';
 import PointLight from './pointlight';
 import Scene from './scene';
 import Stats from 'stats-js';
 import { GUI } from 'dat.gui';
+import Fluid from '../fluid/fluid';
 
 export const GDevice: {
     readyState: 0 | 1 | 2;
@@ -43,13 +44,14 @@ export default class Renderer {
 
     private readonly dimension: [number, number];
 
-    private pipeline: DeferredPipeline;
+    private pass: DeferredPass;
     private scene: Scene;
     private mainCamera: Camera;
     private cameraCtrl: CameraRotator;
 
     private readonly cubes: Cube[] = [];
     private cloth: Cloth;
+    private fluid: Fluid;
 
     constructor(engine: Engine) {
         this.engine = engine;
@@ -83,26 +85,39 @@ export default class Renderer {
         GDevice.screen = p.screen;
         this.resize(p.screen.width * p.dpr, p.screen.height * p.dpr);
 
-        this.pipeline = new DeferredPipeline();
+        this.pass = new DeferredPass();
+        this.pass.init().then(() => this.setupFluid());
 
+        this.setupLights();
+
+        this.start();
+    }
+
+    setupCubes() {
         const POS_RANGE = 100;
         const rng = (min: number, max: number) => Math.random() * (max - min) + min;
 
-        const CUBES = 0;
+        const CUBES = 250;
         for (let i = 0; i < CUBES; i++) {
-            const cube = new Cube(this.pipeline);
+            const cube = new Cube(this.pass);
             cube.transform.position = [
                 rng(-POS_RANGE, POS_RANGE),
                 rng(-POS_RANGE, POS_RANGE),
                 rng(-POS_RANGE, POS_RANGE),
             ];
-            const scale = Math.random() * 0.25 + 0.25;
+            const scale = Math.random() * 5 + 5;
             cube.transform.scale = [scale, scale, scale];
-            this.pipeline.meshDrawList.push(cube);
+            this.pass.meshDrawList.push(cube);
             this.cubes.push(cube);
         }
+    }
 
-        for (let i = 0; i < 250; i++) {
+    setupLights() {
+        const POS_RANGE = 100;
+        const rng = (min: number, max: number) => Math.random() * (max - min) + min;
+
+        const LIGHTS = 250;
+        for (let i = 0; i < LIGHTS; i++) {
             const light = new PointLight();
             light.position = new Float32Array([
                 rng(-POS_RANGE, POS_RANGE),
@@ -118,11 +133,13 @@ export default class Renderer {
 
             light.radius = 64;
 
-            this.pipeline.lightDrawList.push(light);
+            this.pass.lightDrawList.push(light);
         }
 
-        this.pipeline.updateLight();
+        this.pass.updateLight();
+    }
 
+    setupCloth() {
         const gui = this.gui;
         const options = {
             'Debug Normal': false,
@@ -151,7 +168,7 @@ export default class Renderer {
         };
 
         const DIM = 64;
-        this.cloth = new Cloth(this.pipeline, DIM, DIM, {
+        this.cloth = new Cloth(this.pass, DIM, DIM, {
             mass: 1,
             rest_length: 100 / DIM,
             springConstant: DIM * DIM,
@@ -164,9 +181,7 @@ export default class Renderer {
         this.cloth.transform.update();
         this.cloth.transform.updateInverse();
 
-        this.pipeline.clothDrawList.push(this.cloth);
-
-        this.start();
+        this.pass.clothDrawList.push(this.cloth);
 
         console.log(GDevice.device.limits);
         // setTimeout(() => this.stop(), 100);
@@ -194,6 +209,11 @@ export default class Renderer {
             folder.add(coord, 'x', -DIM * 2, DIM * 2, 0.01).onChange(updateCoord);
             folder.add(coord, 'y', -DIM * 2, DIM * 2, 0.01).onChange(updateCoord);
         });
+    }
+
+    setupFluid() {
+        this.fluid = new Fluid(this.pass, { max_num: 1 });
+        this.pass.fluidDrawList.push(this.fluid);
     }
 
     resize(w: number, h: number) {
@@ -248,17 +268,15 @@ export default class Renderer {
 
             const dt = Math.min(1 / 60, (now - this.lastRAF) / 1000);
 
-            await this.pipeline.render(
+            await this.pass.render(
                 dt,
                 now,
                 this.ctx.getCurrentTexture().createView(),
                 this.mainCamera.view,
             );
 
-            // setTimeout(() => {
             this.RAF = requestAnimationFrame(cb);
             this.lastRAF = now;
-            // }, 1000);
 
             this.stats.end();
         };

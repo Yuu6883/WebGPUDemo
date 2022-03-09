@@ -5,8 +5,9 @@ import GBufferFragWGSL from '../shaders/gbuffer.frag.wgsl';
 import QuadVertWGSL from '../shaders/quad.vert.wgsl';
 import DeferredFragWGSL from '../shaders/deferred.frag.wgsl';
 import PointLight from './pointlight';
-import { Renderable } from './pass';
+import { Renderable, RenderPass } from './interfaces';
 import Cloth, { GCloth } from '../cloth/cloth';
+import Fluid, { GFluid } from '../fluid/fluid';
 
 export const GBuffer: {
     ready: boolean;
@@ -36,35 +37,34 @@ export const GBuffer: {
     viewGroup: null,
 };
 
-export class DeferredPipeline {
-    private readonly posnorm: GPUTexture;
-    private readonly albedo: GPUTexture;
-    private readonly depth: GPUTexture;
+export class DeferredPass implements RenderPass {
+    private posnorm: GPUTexture;
+    private albedo: GPUTexture;
+    private depth: GPUTexture;
 
-    private readonly configUB: GPUBuffer;
-    private readonly lightNum = new Uint32Array([0]);
-    private readonly lightBuf = new Float32Array(
-        DeferredPipeline.MAX_LIGHTS * PointLight.STRIDE,
-    );
+    private configUB: GPUBuffer;
+    private lightNum = new Uint32Array([0]);
+    private lightBuf = new Float32Array(DeferredPass.MAX_LIGHTS * PointLight.STRIDE);
 
     static readonly MAX_LIGHTS = 1024;
     static readonly MAX_MESHES = 1024;
 
-    private readonly dtUB: GPUBuffer;
-    private readonly camUB: GPUBuffer;
-    private readonly dimUB: GPUBuffer;
-    private readonly lightSB: GPUBuffer;
-    private readonly modelUB: GPUBuffer;
+    private dtUB: GPUBuffer;
+    private camUB: GPUBuffer;
+    private dimUB: GPUBuffer;
+    private lightSB: GPUBuffer;
+    private modelUB: GPUBuffer;
 
     public readonly lightDrawList: PointLight[] = [];
     public readonly meshDrawList: Renderable[] = [];
     public readonly clothDrawList: Cloth[] = [];
+    public readonly fluidDrawList: Fluid[] = [];
 
     private readonly freeModelUniformIndices: number[] = new Array(
-        DeferredPipeline.MAX_MESHES,
+        DeferredPass.MAX_MESHES,
     );
 
-    private readonly modelBufs: Float32Array;
+    private modelBufs: Float32Array;
 
     public static readonly VertexLayout: GPUVertexBufferLayout = {
         arrayStride: Float32Array.BYTES_PER_ELEMENT * 8,
@@ -90,14 +90,22 @@ export class DeferredPipeline {
         ],
     };
 
-    constructor() {
+    async init() {
         checkDevice();
         if (GBuffer.ready) return;
-        GBuffer.ready = true;
 
         const screen = GDevice.screen;
         const screenSize2D = [screen.width, screen.height];
         const device = GDevice.device;
+
+        for (let i = 0; i < DeferredPass.MAX_MESHES; i++)
+            this.freeModelUniformIndices[i] = i;
+
+        const perModelFloats =
+            device.limits.minUniformBufferOffsetAlignment /
+            Float32Array.BYTES_PER_ELEMENT;
+
+        this.modelBufs = new Float32Array(perModelFloats * DeferredPass.MAX_MESHES);
 
         // Create textures
         this.posnorm = device.createTexture({
@@ -138,15 +146,13 @@ export class DeferredPipeline {
             size:
                 Float32Array.BYTES_PER_ELEMENT *
                 PointLight.STRIDE *
-                DeferredPipeline.MAX_LIGHTS,
+                DeferredPass.MAX_LIGHTS,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
 
         // 2 * mat4x4<f32> * MAX_MODELS?
         this.modelUB = device.createBuffer({
-            size:
-                device.limits.minUniformBufferOffsetAlignment *
-                DeferredPipeline.MAX_MESHES,
+            size: device.limits.minUniformBufferOffsetAlignment * DeferredPass.MAX_MESHES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -156,9 +162,9 @@ export class DeferredPipeline {
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
-        //  mat4x4<f32>
+        //  mat4x4<f32> + vec3<f32>
         this.camUB = device.createBuffer({
-            size: Float32Array.BYTES_PER_ELEMENT * 16,
+            size: Float32Array.BYTES_PER_ELEMENT * (16 + 4),
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
 
@@ -176,11 +182,11 @@ export class DeferredPipeline {
             code: GBufferFragWGSL,
         });
 
-        GBuffer.basePipeline = device.createRenderPipeline({
+        GBuffer.basePipeline = await device.createRenderPipelineAsync({
             vertex: {
                 module: GBuffer.basePassVertShader,
                 entryPoint: 'main',
-                buffers: [DeferredPipeline.VertexLayout],
+                buffers: [DeferredPass.VertexLayout],
             },
             fragment: {
                 module: GBuffer.basePassFragShader,
@@ -267,7 +273,7 @@ export class DeferredPipeline {
             code: DeferredFragWGSL,
         });
 
-        GBuffer.deferredPipeline = device.createRenderPipeline({
+        GBuffer.deferredPipeline = await device.createRenderPipelineAsync({
             layout: device.createPipelineLayout({
                 bindGroupLayouts: [texLayout, lightLayout, sizeLayout],
             }),
@@ -293,7 +299,7 @@ export class DeferredPipeline {
         GBuffer.basePassDesc = {
             colorAttachments: GBuffer.views.map((view, i) => ({
                 view,
-                loadValue: i
+                clearValue: i
                     ? { r: 0, g: 0, b: 0, a: 0 }
                     : {
                           r: Number.MAX_VALUE,
@@ -301,14 +307,16 @@ export class DeferredPipeline {
                           b: Number.MAX_VALUE,
                           a: Number.MAX_VALUE,
                       },
-                loadOp: 'load',
+                loadOp: 'clear',
                 storeOp: 'store',
             })),
             depthStencilAttachment: {
                 view: this.depth.createView(),
-                depthLoadValue: 1.0,
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
                 depthStoreOp: 'store',
-                stencilLoadValue: 0,
+                stencilClearValue: 0,
+                stencilLoadOp: 'clear',
                 stencilStoreOp: 'store',
             },
         };
@@ -318,8 +326,8 @@ export class DeferredPipeline {
                 {
                     // view is acquired and set in render loop.
                     view: undefined,
-                    loadValue: { r: 0, g: 0, b: 0, a: 1 },
-                    loadOp: 'load',
+                    clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                    loadOp: 'clear',
                     storeOp: 'store',
                 },
             ],
@@ -344,16 +352,12 @@ export class DeferredPipeline {
 
         device.queue.writeBuffer(this.dimUB, 0, new Float32Array(screenSize2D));
 
-        for (let i = 0; i < DeferredPipeline.MAX_MESHES; i++)
-            this.freeModelUniformIndices[i] = i;
+        GBuffer.ready = true;
 
-        const perModelFloats =
-            device.limits.minUniformBufferOffsetAlignment /
-            Float32Array.BYTES_PER_ELEMENT;
-
-        this.modelBufs = new Float32Array(perModelFloats * DeferredPipeline.MAX_MESHES);
-
-        Cloth.initPipeline(this.camUB, this.dtUB);
+        await Promise.all([
+            Cloth.initPipeline(this.camUB, this.dtUB),
+            Fluid.initPipeline(this.camUB, this.dtUB),
+        ]);
     }
 
     updateSize() {
@@ -381,6 +385,7 @@ export class DeferredPipeline {
             offset: align * index,
             buffer: this.modelUB,
             model: this.modelBufs.subarray(begin, end),
+            layout: GBuffer.basePipeline.getBindGroupLayout(0),
         };
     }
 
@@ -388,16 +393,13 @@ export class DeferredPipeline {
         this.freeModelUniformIndices.push(index);
     }
 
-    async render(
-        dt: number,
-        now: number,
-        output: GPUTextureView,
-        viewProjection: Float32Array,
-    ) {
+    async render(dt: number, now: number, output: GPUTextureView, camBuf: Float32Array) {
+        if (!GBuffer.ready) return;
+
         const device = GDevice.device;
         const queue = device.queue;
 
-        queue.writeBuffer(this.camUB, 0, viewProjection);
+        queue.writeBuffer(this.camUB, 0, camBuf);
         queue.writeBuffer(this.configUB, 0, this.lightNum);
         queue.writeBuffer(this.lightSB, 0, this.lightBuf);
         queue.writeBuffer(this.modelUB, 0, this.modelBufs);
@@ -409,31 +411,33 @@ export class DeferredPipeline {
         // Milliseconds
         queue.writeBuffer(this.dtUB, 0, new Float32Array([SAMPLE_STEP * 0.001]));
 
-        let loop = 0;
-        while (Cloth.sampleTime < now) {
-            Cloth.sampleTime += SAMPLE_STEP * Cloth.sampleRate;
-            loop++;
+        if (GCloth.ready) {
+            let loop = 0;
+            while (Cloth.sampleTime < now) {
+                Cloth.sampleTime += SAMPLE_STEP * Cloth.sampleRate;
+                loop++;
+            }
+
+            for (let i = 0; i < Math.min(50, loop); i++) {
+                // Cloth compute pass
+                const ClothForcePass = cmd.beginComputePass();
+                ClothForcePass.setPipeline(GCloth.simPipeline);
+                for (const cloth of this.clothDrawList) cloth.simulate(ClothForcePass);
+                ClothForcePass.end();
+
+                // Cloth update pass
+                const ClothUpdatePass = cmd.beginComputePass();
+                ClothUpdatePass.setBindGroup(2, GCloth.dtGroup);
+                ClothUpdatePass.setPipeline(GCloth.updatePipeline);
+                for (const cloth of this.clothDrawList) cloth.update(ClothUpdatePass);
+                ClothUpdatePass.end();
+            }
+
+            const ClothNormalPass = cmd.beginComputePass();
+            ClothNormalPass.setPipeline(GCloth.normalCalcPipeline);
+            for (const cloth of this.clothDrawList) cloth.recalcNormals(ClothNormalPass);
+            ClothNormalPass.end();
         }
-
-        for (let i = 0; i < Math.min(50, loop); i++) {
-            // Cloth compute pass
-            const ClothForcePass = cmd.beginComputePass();
-            ClothForcePass.setPipeline(GCloth.forceCalcPipeline);
-            for (const cloth of this.clothDrawList) cloth.simulate(ClothForcePass);
-            ClothForcePass.endPass();
-
-            // Cloth update pass
-            const ClothUpdatePass = cmd.beginComputePass();
-            ClothUpdatePass.setBindGroup(2, GCloth.dtGroup);
-            ClothUpdatePass.setPipeline(GCloth.updatePipeline);
-            for (const cloth of this.clothDrawList) cloth.update(ClothUpdatePass);
-            ClothUpdatePass.endPass();
-        }
-
-        const ClothNormalPass = cmd.beginComputePass();
-        ClothNormalPass.setPipeline(GCloth.normalCalcPipeline);
-        for (const cloth of this.clothDrawList) cloth.recalcNormals(ClothNormalPass);
-        ClothNormalPass.endPass();
 
         // GBuffer base pass
         const GBufferPass = cmd.beginRenderPass(GBuffer.basePassDesc);
@@ -447,17 +451,25 @@ export class DeferredPipeline {
         for (const mesh of this.meshDrawList) mesh.draw(GBufferPass);
 
         // Draw clothes / debug normal
-        if (Cloth.debug) {
-            GBufferPass.setPipeline(GCloth.normalDebugPipeline);
-            GBufferPass.setBindGroup(1, GCloth.debugViewGroup);
-            for (const cloth of this.clothDrawList) cloth.debug(GBufferPass);
-        } else {
-            GBufferPass.setPipeline(GCloth.renderPipeline);
-            GBufferPass.setBindGroup(1, GCloth.viewGroup);
-            for (const cloth of this.clothDrawList) cloth.draw(GBufferPass);
+        if (GCloth.ready) {
+            if (Cloth.debug) {
+                GBufferPass.setPipeline(GCloth.normalDebugPipeline);
+                GBufferPass.setBindGroup(1, GCloth.debugViewGroup);
+                for (const cloth of this.clothDrawList) cloth.debug(GBufferPass);
+            } else {
+                GBufferPass.setPipeline(GCloth.renderPipeline);
+                GBufferPass.setBindGroup(1, GCloth.viewGroup);
+                for (const cloth of this.clothDrawList) cloth.draw(GBufferPass);
+            }
         }
 
-        GBufferPass.endPass();
+        if (GFluid.ready) {
+            GBufferPass.setPipeline(GFluid.renderPipeline);
+            GBufferPass.setBindGroup(1, GFluid.viewGroup);
+            for (const fluid of this.fluidDrawList) fluid.draw(GBufferPass);
+        }
+
+        GBufferPass.end();
 
         // Render to swapchain texture
         GBuffer.deferredPassDesc.colorAttachments[0].view = output;
@@ -470,7 +482,11 @@ export class DeferredPipeline {
         DeferredPass.setBindGroup(1, GBuffer.lightGroup);
         DeferredPass.setBindGroup(2, GBuffer.dimGroup);
         DeferredPass.draw(6);
-        DeferredPass.endPass();
+        DeferredPass.end();
+
+        if (GFluid.ready) {
+            // TODO: fluid compute shaders
+        }
 
         queue.submit([cmd.finish()]);
 

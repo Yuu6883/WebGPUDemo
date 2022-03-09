@@ -1,7 +1,6 @@
 import Transform from '../core/transform';
 import { GDevice } from './base';
-import { Renderable } from './pass';
-import { DeferredPipeline, GBuffer } from './pipeline';
+import { Renderable, RenderPass } from './interfaces';
 
 export default class StaticMesh implements Renderable {
     public readonly transform: Transform;
@@ -14,10 +13,10 @@ export default class StaticMesh implements Renderable {
 
     public readonly uniformIndex: number;
     private readonly modelGroup: GPUBindGroup;
-    private readonly pipeline: DeferredPipeline;
+    private readonly pass: RenderPass;
 
     constructor(
-        pipeline: DeferredPipeline,
+        pass: RenderPass,
         positions: Float32Array,
         normals: Float32Array,
         uvs: Float32Array,
@@ -34,7 +33,7 @@ export default class StaticMesh implements Renderable {
             throw new Error('StaticMesh: Buffer length mismatch');
         }
 
-        this.pipeline = pipeline;
+        this.pass = pass;
         const device = GDevice.device;
 
         const elem = positions.length / 3;
@@ -83,11 +82,11 @@ export default class StaticMesh implements Renderable {
             this.ibo.unmap();
         }
 
-        const { index, offset, buffer, model } = pipeline.allocUniform();
+        const { index, offset, buffer, model, layout } = pass.allocUniform();
 
         this.uniformIndex = index;
         this.modelGroup = device.createBindGroup({
-            layout: GBuffer.basePipeline.getBindGroupLayout(0),
+            layout,
             entries: [
                 {
                     binding: 0,
@@ -106,7 +105,7 @@ export default class StaticMesh implements Renderable {
     }
 
     free() {
-        this.pipeline.freeUniformIndex(this.uniformIndex);
+        this.pass.freeUniformIndex(this.uniformIndex);
         this.vbo.destroy();
         this.ibo?.destroy();
     }
