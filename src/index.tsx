@@ -25,9 +25,12 @@ const App = () => {
             dpr: window.devicePixelRatio,
         };
 
+        const query = window.location.search;
         const engine = new Engine(params);
         engine.init().then(() => {
-            engine.renderer.setupCloth();
+            if (query === '?cloth') engine.renderer.setupCloth();
+            else if (query === '?particles') engine.renderer.setupParticles();
+            else engine.renderer.setupCubes();
             // engine.renderer.setupParticles();
         });
 
