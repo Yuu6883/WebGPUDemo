@@ -38,7 +38,15 @@ const App = () => {
         // return () => worker.terminate();
     }, []);
 
-    return <></>;
+    const base = `${location.origin}/${location.pathname}`;
+
+    return (
+        <div>
+            <a href={base}>Cubes</a>
+            <a href={base + '?cloth'}>Cloth</a>
+            <a href={base + '?particles'}>Particles</a>
+        </div>
+    );
 };
 
 ReactDOM.render(<App />, document.getElementById('app'));
