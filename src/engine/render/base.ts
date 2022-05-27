@@ -98,18 +98,24 @@ export default class Renderer {
     }
 
     setupCubes() {
-        const POS_RANGE = 100;
+        const POS_RANGE = 250;
         const rng = (min: number, max: number) => Math.random() * (max - min) + min;
 
-        const CUBES = 250;
+        const CUBES = 2500;
         for (let i = 0; i < CUBES; i++) {
             const cube = new Cube(this.pass);
             cube.transform.position = [
                 rng(-POS_RANGE, POS_RANGE),
-                rng(-POS_RANGE, POS_RANGE),
+                rng(0, 2 * POS_RANGE),
                 rng(-POS_RANGE, POS_RANGE),
             ];
-            const scale = Math.random() * 5 + 5;
+            const scale = Math.random() * 10 + 1;
+            cube.transform.rotation = [
+                Math.random(),
+                Math.random(),
+                Math.random(),
+                Math.random(),
+            ];
             cube.transform.scale = [scale, scale, scale];
             this.pass.meshDrawList.push(cube);
             this.cubes.push(cube);

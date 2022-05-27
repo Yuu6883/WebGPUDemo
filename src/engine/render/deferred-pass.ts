@@ -47,7 +47,7 @@ export class DeferredPass implements RenderPass {
     private lightBuf = new Float32Array(DeferredPass.MAX_LIGHTS * PointLight.STRIDE);
 
     static readonly MAX_LIGHTS = 1024;
-    static readonly MAX_MESHES = 1024;
+    static readonly MAX_MESHES = 65536;
 
     private clothDTUB: GPUBuffer;
     private particleDTUB: GPUBuffer;
