@@ -26,10 +26,12 @@ const App = () => {
         };
 
         const engine = new Engine(params);
-        engine.init();
+        engine.init().then(() => {
+            engine.renderer.setupCloth();
+            // engine.renderer.setupParticles();
+        });
 
         // worker.postMessage(data);
-
         // return () => worker.terminate();
     }, []);
 

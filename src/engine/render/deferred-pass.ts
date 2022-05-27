@@ -7,7 +7,7 @@ import DeferredFragWGSL from '../shaders/deferred.frag.wgsl';
 import PointLight from './pointlight';
 import { Renderable, RenderPass } from './interfaces';
 import Cloth, { GCloth } from '../cloth/cloth';
-import Fluid, { GFluid } from '../fluid/fluid';
+import Particles, { GParticle } from '../particles/particles';
 
 export const GBuffer: {
     ready: boolean;
@@ -49,7 +49,8 @@ export class DeferredPass implements RenderPass {
     static readonly MAX_LIGHTS = 1024;
     static readonly MAX_MESHES = 1024;
 
-    private dtUB: GPUBuffer;
+    private clothDTUB: GPUBuffer;
+    private particleDTUB: GPUBuffer;
     private camUB: GPUBuffer;
     private dimUB: GPUBuffer;
     private lightSB: GPUBuffer;
@@ -58,7 +59,7 @@ export class DeferredPass implements RenderPass {
     public readonly lightDrawList: PointLight[] = [];
     public readonly meshDrawList: Renderable[] = [];
     public readonly clothDrawList: Cloth[] = [];
-    public readonly fluidDrawList: Fluid[] = [];
+    public readonly particlesDrawList: Particles[] = [];
 
     private readonly freeModelUniformIndices: number[] = new Array(
         DeferredPass.MAX_MESHES,
@@ -157,7 +158,12 @@ export class DeferredPass implements RenderPass {
         });
 
         // f32
-        this.dtUB = device.createBuffer({
+        this.clothDTUB = device.createBuffer({
+            size: Float32Array.BYTES_PER_ELEMENT,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+
+        this.particleDTUB = device.createBuffer({
             size: Float32Array.BYTES_PER_ELEMENT,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
@@ -355,8 +361,8 @@ export class DeferredPass implements RenderPass {
         GBuffer.ready = true;
 
         await Promise.all([
-            Cloth.initPipeline(this.camUB, this.dtUB),
-            Fluid.initPipeline(this.camUB, this.dtUB),
+            Cloth.initPipeline(this.camUB, this.clothDTUB),
+            Particles.initPipeline(this.camUB, this.particleDTUB),
         ]);
     }
 
@@ -405,13 +411,14 @@ export class DeferredPass implements RenderPass {
         queue.writeBuffer(this.modelUB, 0, this.modelBufs);
 
         const cmd = device.createCommandEncoder();
+        const cmds: GPUCommandEncoder[] = [cmd];
 
         const SAMPLE_STEP = 1;
 
         // Milliseconds
-        queue.writeBuffer(this.dtUB, 0, new Float32Array([SAMPLE_STEP * 0.001]));
+        queue.writeBuffer(this.clothDTUB, 0, new Float32Array([SAMPLE_STEP * 0.001]));
 
-        if (GCloth.ready) {
+        if (GCloth.ready && this.clothDrawList.length) {
             let loop = 0;
             while (Cloth.sampleTime < now) {
                 Cloth.sampleTime += SAMPLE_STEP * Cloth.sampleRate;
@@ -439,6 +446,22 @@ export class DeferredPass implements RenderPass {
             ClothNormalPass.end();
         }
 
+        queue.writeBuffer(this.particleDTUB, 0, new Float32Array([1 / 60]));
+
+        if (GParticle.ready && this.particlesDrawList.length) {
+            const StagePass = cmd.beginComputePass();
+            StagePass.setPipeline(GParticle.stagePipeline);
+            for (const particles of this.particlesDrawList)
+                particles.stage(dt, StagePass);
+            StagePass.end();
+
+            const UpdatePass = cmd.beginComputePass();
+            UpdatePass.setPipeline(GParticle.updatePipeline);
+            UpdatePass.setBindGroup(3, GParticle.dtGroup);
+            for (const particles of this.particlesDrawList) particles.update(UpdatePass);
+            UpdatePass.end();
+        }
+
         // GBuffer base pass
         const GBufferPass = cmd.beginRenderPass(GBuffer.basePassDesc);
 
@@ -451,7 +474,7 @@ export class DeferredPass implements RenderPass {
         for (const mesh of this.meshDrawList) mesh.draw(GBufferPass);
 
         // Draw clothes / debug normal
-        if (GCloth.ready) {
+        if (GCloth.ready && this.clothDrawList.length) {
             if (Cloth.debug) {
                 GBufferPass.setPipeline(GCloth.normalDebugPipeline);
                 GBufferPass.setBindGroup(1, GCloth.debugViewGroup);
@@ -463,10 +486,10 @@ export class DeferredPass implements RenderPass {
             }
         }
 
-        if (GFluid.ready) {
-            GBufferPass.setPipeline(GFluid.renderPipeline);
-            GBufferPass.setBindGroup(1, GFluid.viewGroup);
-            for (const fluid of this.fluidDrawList) fluid.draw(GBufferPass);
+        if (GParticle.ready) {
+            GBufferPass.setPipeline(GParticle.renderPipeline);
+            GBufferPass.setBindGroup(1, GParticle.viewGroup);
+            for (const particples of this.particlesDrawList) particples.draw(GBufferPass);
         }
 
         GBufferPass.end();
@@ -484,14 +507,12 @@ export class DeferredPass implements RenderPass {
         DeferredPass.draw(6);
         DeferredPass.end();
 
-        if (GFluid.ready) {
-            // TODO: fluid compute shaders
-        }
-
-        queue.submit([cmd.finish()]);
-
-        for (const cloth of this.clothDrawList) await cloth.postUpdate();
+        queue.submit(cmds.map(c => c.finish()));
 
         GBuffer.deferredPassDesc.colorAttachments[0].view = null;
+
+        const t1 = this.particlesDrawList.map(f => f.postUpdate());
+        const t2 = this.clothDrawList.map(c => c.postUpdate());
+        await Promise.all(t1.concat(t2));
     }
 }

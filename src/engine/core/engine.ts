@@ -2,7 +2,7 @@ import Renderer from '../render/base';
 import { EngineParam } from '../types';
 
 export default class Engine {
-    private renderer: Renderer;
+    public readonly renderer: Renderer;
     public readonly params: EngineParam;
 
     constructor(params: EngineParam) {
@@ -10,7 +10,7 @@ export default class Engine {
         this.renderer = new Renderer(this);
     }
 
-    init() {
-        this.renderer.init();
+    async init() {
+        await this.renderer.init();
     }
 }

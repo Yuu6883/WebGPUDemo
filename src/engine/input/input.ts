@@ -39,7 +39,7 @@ export default class CameraRotator {
     }
 
     onMouseWheel(delta: number) {
-        this.cam.distance *= 1 + delta / 1000;
+        this.cam.targetDistance *= 1 + delta / 1000;
     }
 
     onMouseMove(nx: number, ny: number) {

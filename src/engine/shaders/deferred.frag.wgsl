@@ -65,8 +65,8 @@ fn main(@builtin(position) coord : vec4<f32>)
     // some manual ambient
     result = result + vec3<f32>(0.2, 0.2, 0.2);
 
-    // return vec4<f32>(result, 1.0);
+    return vec4<f32>(result, 1.0);
 
-    return vec4<f32>(((normal + vec3<f32>(1.0)) / 2.0), 1.0);
+    // return vec4<f32>(((normal + vec3<f32>(1.0)) / 2.0), 1.0);
     // return vec4<f32>(((position.xyz) + 0.5), 1.0);
 }

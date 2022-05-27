@@ -8,7 +8,8 @@ import PointLight from './pointlight';
 import Scene from './scene';
 import Stats from 'stats-js';
 import { GUI } from 'dat.gui';
-import Fluid from '../fluid/fluid';
+import Particles from '../particles/particles';
+import { vec3 } from 'gl-matrix';
 
 export const GDevice: {
     readyState: 0 | 1 | 2;
@@ -16,12 +17,14 @@ export const GDevice: {
     device: GPUDevice;
     format: GPUTextureFormat;
     screen: { width: number; height: number };
+    now: number;
 } = {
     readyState: 0,
     adapter: null,
     device: null,
     format: null,
     screen: null,
+    now: performance.now(),
 };
 
 export const checkDevice = () => {
@@ -51,7 +54,7 @@ export default class Renderer {
 
     private readonly cubes: Cube[] = [];
     private cloth: Cloth;
-    private fluid: Fluid;
+    private particles: Particles;
 
     constructor(engine: Engine) {
         this.engine = engine;
@@ -70,6 +73,8 @@ export default class Renderer {
             GDevice.readyState = 2;
         } else return;
 
+        console.log(GDevice.device.limits);
+
         GDevice.format = this.ctx.getPreferredFormat(GDevice.adapter);
         this.ctx.configure({
             device: GDevice.device,
@@ -86,11 +91,10 @@ export default class Renderer {
         this.resize(p.screen.width * p.dpr, p.screen.height * p.dpr);
 
         this.pass = new DeferredPass();
-        this.pass.init().then(() => this.setupFluid());
 
         this.setupLights();
-
         this.start();
+        await this.pass.init();
     }
 
     setupCubes() {
@@ -113,15 +117,15 @@ export default class Renderer {
     }
 
     setupLights() {
-        const POS_RANGE = 100;
+        const POS_RANGE = 500;
         const rng = (min: number, max: number) => Math.random() * (max - min) + min;
 
-        const LIGHTS = 250;
+        const LIGHTS = 1024;
         for (let i = 0; i < LIGHTS; i++) {
             const light = new PointLight();
             light.position = new Float32Array([
                 rng(-POS_RANGE, POS_RANGE),
-                rng(-POS_RANGE, POS_RANGE),
+                rng(0, POS_RANGE),
                 rng(-POS_RANGE, POS_RANGE),
             ]);
 
@@ -131,7 +135,7 @@ export default class Renderer {
                 rng(0.25, 0.75),
             ]);
 
-            light.radius = 64;
+            light.radius = 128;
 
             this.pass.lightDrawList.push(light);
         }
@@ -200,8 +204,6 @@ export default class Renderer {
         gui.add(options, 'Reset Wind');
 
         this.cloth.fixedPoints.forEach(({ row, col, x, y }, i) => {
-            console.log({ row, col, x, y });
-
             const coord = { x, y };
             const updateCoord = () =>
                 this.cloth.setFixedPointPosition(row, col, coord.x, coord.y);
@@ -211,9 +213,107 @@ export default class Renderer {
         });
     }
 
-    setupFluid() {
-        this.fluid = new Fluid(this.pass, { max_num: 1 });
-        this.pass.fluidDrawList.push(this.fluid);
+    setupParticles() {
+        const p = (this.particles = new Particles(this.pass, {
+            max_num: 1000000,
+            max_spawn_per_frame: 10000,
+        }));
+        this.pass.particlesDrawList.push(this.particles);
+
+        const gui = this.gui;
+        const options = {
+            Pause: function () {
+                p.pause = !p.pause;
+            },
+            Radius: p.radius,
+        };
+        const addVectorOption = (
+            folder: GUI,
+            vec: vec3,
+            range: vec3,
+            positiveOnly = false,
+        ) => {
+            const vecOp = {
+                X: vec[0],
+                Y: vec[1],
+                Z: vec[2],
+            };
+            for (let i = 0; i < 3; i++)
+                folder
+                    .add(
+                        vecOp,
+                        'XYZ'.charAt(i),
+                        positiveOnly ? 0 : vec[i] - range[i],
+                        positiveOnly ? range[i] : vec[i] + range[i],
+                        range[i] * 0.01,
+                    )
+                    .onChange(v => (vec[i] = v));
+        };
+
+        gui.add(options, 'Pause');
+        const constOptions = {
+            'Air Density': p.coeffients[0],
+            Drag: p.coeffients[1],
+            'Groud Elasticity': p.coeffients[2],
+            'Groud Friction': p.coeffients[3],
+        };
+        const constants = gui.addFolder('Constants');
+        for (let i = 0; i < 4; i++) {
+            constants
+                .add(
+                    constOptions,
+                    Object.keys(constOptions)[i],
+                    0,
+                    [2, 0.025, 1, 1][i],
+                    0.001,
+                )
+                .onChange(v => (p.coeffients[i] = v));
+        }
+
+        const particle = gui.addFolder('Particle');
+
+        particle.add(options, 'Radius', 0.01, 5, 0.001).onChange(v => (p.radius = v));
+
+        const spawn = particle.addFolder('Spawn');
+        const spawnOptions = {
+            'Spawn Rate': p.spawn_rate,
+            'Life Span': p.lifeSpan[0],
+            'Life Variance': p.lifeSpan[1],
+        };
+
+        spawn
+            .add(spawnOptions, 'Spawn Rate', 0, 100000, p.spawn_rate * 0.001)
+            .onChange(v => (p.spawn_rate = v));
+        spawn
+            .add(spawnOptions, 'Life Span', 5000, 25000, 100)
+            .onChange(v => (p.lifeSpan[0] = v));
+        spawn
+            .add(spawnOptions, 'Life Variance', 0, 5000, 100)
+            .onChange(v => (p.lifeSpan[1] = v));
+
+        addVectorOption(gui.addFolder('Wind'), p.wind, [100, 100, 100]);
+        addVectorOption(
+            particle.addFolder('Initial Position'),
+            p.initPos,
+            [1000, 1000, 1000],
+        );
+        addVectorOption(
+            particle.addFolder('Position Variance'),
+            p.variPos,
+            [500, 500, 500],
+            true,
+        );
+        addVectorOption(
+            particle.addFolder('Initial Velocity'),
+            p.initVel,
+            [100, 100, 100],
+        );
+        addVectorOption(
+            particle.addFolder('Velocity Variance'),
+            p.variVel,
+            [50, 50, 50],
+            true,
+        );
     }
 
     resize(w: number, h: number) {
@@ -252,6 +352,7 @@ export default class Renderer {
         if (this.RAF) return;
 
         const cb = async (now: number) => {
+            GDevice.now = now;
             this.stats.begin();
 
             const t = now * 0.001;

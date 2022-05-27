@@ -61,8 +61,8 @@ module.exports = class MainApp {
             },
         });
 
-        // this.window.loadFile(path.join(__dirname, '..', '..', 'build', 'index.html'));
-        this.window.loadURL('http://localhost:8080');
+        this.window.loadFile(path.join(__dirname, '..', '..', 'build', 'index.html'));
+        // this.window.loadURL('http://localhost:8080');
         // this.window.loadURL('https://toji.github.io/webgpu-metaballs/');
 
         this.window.webContents.once('did-finish-load', () => {

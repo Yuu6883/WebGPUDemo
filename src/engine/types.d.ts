@@ -6,3 +6,9 @@ export interface EngineParam {
     };
     dpr: number;
 }
+
+declare global {
+    interface Window {
+        require: typeof require;
+    }
+}

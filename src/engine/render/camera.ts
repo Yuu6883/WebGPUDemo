@@ -13,6 +13,8 @@ export default class Camera {
     public azimuth = 0;
     public incline = 0;
 
+    public targetDistance = 0;
+
     public readonly view = new Float32Array(16 + 4);
 
     constructor(scene: Scene) {
@@ -21,6 +23,8 @@ export default class Camera {
     }
 
     public update() {
+        this.distance += (this.targetDistance - this.distance) / 60;
+
         const temp = mat4.create();
         const world = mat4.create();
         world[14] = this.distance;
@@ -50,9 +54,9 @@ export default class Camera {
         this.fov = 60;
         this.aspect = 1.33;
         this.nearClip = 0.1;
-        this.farClip = 1000;
+        this.farClip = 2500;
 
-        this.distance = 200;
+        this.targetDistance = this.distance = 100;
         this.azimuth = 0;
         this.incline = 20;
     }
