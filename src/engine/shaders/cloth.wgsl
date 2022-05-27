@@ -1,38 +1,38 @@
 struct ClothPoint {
-    position: vec4<f32>; // using w component to store if this point is fixed (padded anyways)
-    normal:   vec4<f32>;
-    force:    vec4<f32>;
-    velocity: vec4<f32>;
+    position: vec4<f32>, // using w component to store if this point is fixed (padded anyways)
+    normal:   vec4<f32>,
+    force:    vec4<f32>,
+    velocity: vec4<f32>,
 };
 
 struct ClothPointShared {
-    p: vec4<f32>;
-    v: vec4<f32>;
+    p: vec4<f32>,
+    v: vec4<f32>,
 };
 
 struct ClothPoints {
-    data: array<ClothPoint>;
+    data: array<ClothPoint>,
 };
 
 struct SimulationConstants {
-    mass:             f32;
-    rest_length:      f32;
-    spring_constant:  f32;
-    damping_constant: f32;
-    floor_y:          f32;
+    mass:             f32,
+    rest_length:      f32,
+    spring_constant:  f32,
+    damping_constant: f32,
+    floor_y:          f32,
 };
 
 struct Dimension {
-    size: vec2<u32>;
+    size: vec2<u32>,
 };
 
 struct Vectors {
-    wind: vec3<f32>;
-    gravity: vec3<f32>;
+    wind: vec3<f32>,
+    gravity: vec3<f32>,
 };
 
 struct Indices {
-    data: array<array<u32, 3>>;
+    data: array<array<u32, 3>>,
 };
 
 // Group 1 is per cloth
@@ -304,7 +304,7 @@ fn calc_normal(
 }
 
 struct DT {
-    value: f32;
+    value: f32,
 };
 
 @group(2) @binding(0) var<uniform> dt: DT;

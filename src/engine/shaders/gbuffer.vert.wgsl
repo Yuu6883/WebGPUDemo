@@ -1,20 +1,20 @@
 struct Uniforms {
-    modelMatrix : mat4x4<f32>;
-    normalModelMatrix : mat4x4<f32>;
+    modelMatrix : mat4x4<f32>,
+    normalModelMatrix : mat4x4<f32>,
 };
 
 struct Camera {
-    viewProjectionMatrix : mat4x4<f32>;
+    viewProjectionMatrix : mat4x4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
 @group(1) @binding(0) var<uniform> camera : Camera;
 
 struct VertexOutput {
-    @builtin(position) Position : vec4<f32>;
-    @location(0) worldPos: vec3<f32>;  // position in world space
-    @location(1) worldNorm: vec3<f32>;    // normal in world space
-    @location(2) fragUV: vec2<f32>;
+    @builtin(position) Position : vec4<f32>,
+    @location(0) worldPos: vec3<f32>,  // position in world space
+    @location(1) worldNorm: vec3<f32>,    // normal in world space
+    @location(2) fragUV: vec2<f32>,
 };
 
 @stage(vertex)

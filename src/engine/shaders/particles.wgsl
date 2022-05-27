@@ -1,36 +1,36 @@
 struct Uniforms {
-    modelMatrix : mat4x4<f32>;
-    normalModelMatrix : mat4x4<f32>;
+    modelMatrix : mat4x4<f32>,
+    normalModelMatrix : mat4x4<f32>,
 };
 
 struct Camera {
-    viewProjectionMatrix : mat4x4<f32>;
-    eyePos : vec3<f32>;
+    viewProjectionMatrix : mat4x4<f32>,
+    eyePos : vec3<f32>,
 };
 
 struct Params {
-    radius : f32;
-    num : u32;
-    spawn : u32;
-    gravity : f32;
-    air_den : f32;
-    drag : f32;
-    elas : f32;
-    fric : f32;
-    wind : vec3<f32>;
+    radius : f32,
+    num : u32,
+    spawn : u32,
+    gravity : f32,
+    air_den : f32,
+    drag : f32,
+    elas : f32,
+    fric : f32,
+    wind : vec3<f32>,
 };
 
 struct RenderParticle {
-    position: vec3<f32>;
-    velocity: vec3<f32>;
+    position: vec3<f32>,
+    velocity: vec3<f32>,
 };
 
 struct RenderParticles {
-    data: array<RenderParticle>;
+    data: array<RenderParticle>,
 };
 
 struct Indices {
-    data: array<u32>;
+    data: array<u32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms : Uniforms;
@@ -40,9 +40,9 @@ struct Indices {
 @group(2) @binding(2) var<storage, read> indices : Indices;
 
 struct VertexOutput {
-    @builtin(position) Position : vec4<f32>;
-    @location(0) sphere_center : vec3<f32>;  // sphere center in world space
-    @location(1) ray_dir : vec3<f32>;        // ray direction
+    @builtin(position) Position : vec4<f32>,
+    @location(0) sphere_center : vec3<f32>,  // sphere center in world space
+    @location(1) ray_dir : vec3<f32>,        // ray direction
 };
 
 @stage(vertex)
@@ -102,11 +102,11 @@ fn vert_main(
 }
 
 struct GBufferOutput {
-    @builtin(frag_depth) depth : f32;
-    @location(0) position : vec4<f32>;
-    @location(1) normal : vec4<f32>;
+    @builtin(frag_depth) depth : f32,
+    @location(0) position : vec4<f32>,
+    @location(1) normal : vec4<f32>,
     // Textures: diffuse color, specular color, smoothness, emissive etc. could go here
-    @location(2) albedo : vec4<f32>;
+    @location(2) albedo : vec4<f32>,
 };
 
 fn sphIntersect(ro: vec3<f32>, rd: vec3<f32>, sph: vec4<f32>) -> f32 {
@@ -148,16 +148,16 @@ fn frag_main(
 }
 
 struct StageParticle {
-    position: vec4<f32>;
-    velocity: vec3<f32>;
+    position: vec4<f32>,
+    velocity: vec3<f32>,
 };
 
 struct StageParticles {
-    data: array<StageParticle>;
+    data: array<StageParticle>,
 };
 
 struct DT {
-    value: f32;
+    value: f32,
 };
 
 @group(2) @binding(1) var<storage, read_write> w_particles : RenderParticles;

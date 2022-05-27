@@ -3,23 +3,23 @@
 @group(0) @binding(2) var gBufferAlbedo: texture_2d<f32>;
 
 struct LightData {
-    position : vec4<f32>;
-    color : vec3<f32>;
-    radius : f32;
+    position : vec4<f32>,
+    color : vec3<f32>,
+    radius : f32,
 };
 
 struct LightsBuffer {
-    lights: array<LightData>;
+    lights: array<LightData>,
 };
 @group(1) @binding(0) var<storage, read_write> lightsBuffer: LightsBuffer;
 
 struct Config {
-    numLights : u32;
+    numLights : u32,
 };
 @group(1) @binding(1) var<uniform> config: Config;
 
 struct CanvasConstants {
-    size: vec2<f32>;
+    size: vec2<f32>,
 };
 @group(2) @binding(0) var<uniform> canvas : CanvasConstants;
 
