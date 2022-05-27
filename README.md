@@ -1,4 +1,4 @@
-# WebGPU Demo
+# WebGPU [Demo](https://yuu6883.github.io/WebGPUDemo/)
 
 https://user-images.githubusercontent.com/38842891/170631244-2958a061-4219-4a2f-945c-0dbb4b614d6f.mp4
 
