@@ -21,6 +21,7 @@
         "@webgpu/types": "^0.1.13",
         "css-loader": "^6.6.0",
         "dat.gui": "^0.7.9",
+        "electron": "^19.0.1",
         "electron-builder": "^22.14.13",
         "file-loader": "^6.2.0",
         "gl-matrix": "^3.4.3",
@@ -37,8 +38,5 @@
         "url-loader": "^4.1.1",
         "webpack-cli": "^4.9.2",
         "webpack-dev-server": "^4.7.4"
-    },
-    "dependencies": {
-        "electron-nightly": "^19.0.0-nightly.20220308"
     }
 }
