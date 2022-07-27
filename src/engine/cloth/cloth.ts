@@ -146,6 +146,7 @@ export default class Cloth implements Renderable {
         tasks.push(
             device
                 .createComputePipelineAsync({
+                    layout: 'auto',
                     compute: {
                         module: shader,
                         entryPoint: 'calc_forces',
@@ -158,6 +159,7 @@ export default class Cloth implements Renderable {
         tasks.push(
             device
                 .createRenderPipelineAsync({
+                    layout: 'auto',
                     vertex: {
                         module: GBuffer.basePassVertShader,
                         entryPoint: 'main',
@@ -192,6 +194,7 @@ export default class Cloth implements Renderable {
         tasks.push(
             device
                 .createRenderPipelineAsync({
+                    layout: 'auto',
                     vertex: {
                         module: GBuffer.basePassVertShader,
                         entryPoint: 'main',
@@ -225,6 +228,7 @@ export default class Cloth implements Renderable {
         tasks.push(
             device
                 .createComputePipelineAsync({
+                    layout: 'auto',
                     compute: {
                         module: shader,
                         entryPoint: 'init_indices',
@@ -236,6 +240,7 @@ export default class Cloth implements Renderable {
         tasks.push(
             device
                 .createComputePipelineAsync({
+                    layout: 'auto',
                     compute: {
                         module: shader,
                         entryPoint: 'calc_normal',
@@ -247,6 +252,7 @@ export default class Cloth implements Renderable {
         tasks.push(
             device
                 .createComputePipelineAsync({
+                    layout: 'auto',
                     compute: {
                         module: shader,
                         entryPoint: 'update',

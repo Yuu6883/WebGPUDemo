@@ -75,7 +75,7 @@ export default class Renderer {
 
         console.log(GDevice.device.limits);
 
-        GDevice.format = this.ctx.getPreferredFormat(GDevice.adapter);
+        GDevice.format = navigator.gpu.getPreferredCanvasFormat();
         this.ctx.configure({
             device: GDevice.device,
             format: GDevice.format,

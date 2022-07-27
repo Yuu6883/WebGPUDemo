@@ -89,6 +89,7 @@ export default class Particles implements Renderable {
         });
 
         GParticle.renderPipeline = await device.createRenderPipelineAsync({
+            layout: 'auto',
             vertex: {
                 module: shader,
                 entryPoint: 'vert_main',
@@ -118,6 +119,7 @@ export default class Particles implements Renderable {
         });
 
         GParticle.stagePipeline = await device.createComputePipelineAsync({
+            layout: 'auto',
             compute: {
                 module: shader,
                 entryPoint: 'spawn',
@@ -125,6 +127,7 @@ export default class Particles implements Renderable {
         });
 
         GParticle.updatePipeline = await device.createComputePipelineAsync({
+            layout: 'auto',
             compute: {
                 module: shader,
                 entryPoint: 'update',

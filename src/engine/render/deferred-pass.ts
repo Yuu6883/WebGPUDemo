@@ -189,6 +189,7 @@ export class DeferredPass implements RenderPass {
         });
 
         GBuffer.basePipeline = await device.createRenderPipelineAsync({
+            layout: 'auto',
             vertex: {
                 module: GBuffer.basePassVertShader,
                 entryPoint: 'main',
