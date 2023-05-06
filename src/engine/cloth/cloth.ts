@@ -494,7 +494,7 @@ export default class Cloth implements Renderable {
             indicesPass.setPipeline(GCloth.triangleGenPipeline);
             indicesPass.setBindGroup(0, indicesGroup0);
             indicesPass.setBindGroup(1, indicesGroup1);
-            indicesPass.dispatch(GridX, GridY);
+            indicesPass.dispatchWorkgroups(GridX, GridY);
             indicesPass.end();
 
             // const testBuf = device.createBuffer({
@@ -586,14 +586,14 @@ export default class Cloth implements Renderable {
         pass.setBindGroup(0, this.s_computeGroup);
         pass.setBindGroup(1, this.s_uniformGroup);
 
-        pass.dispatch(GridX, GridY);
+        pass.dispatchWorkgroups(GridX, GridY);
     }
 
     update(pass: GPUComputePassEncoder) {
         pass.setBindGroup(0, this.u_computeGroup);
         pass.setBindGroup(1, this.u_uniformGroup);
         // Workgroup size is 256
-        pass.dispatch(Math.ceil((this.dimension[0] * this.dimension[1]) / 256));
+        pass.dispatchWorkgroups(Math.ceil((this.dimension[0] * this.dimension[1]) / 256));
     }
 
     recalcNormals(pass: GPUComputePassEncoder) {
@@ -604,7 +604,7 @@ export default class Cloth implements Renderable {
         pass.setBindGroup(0, this.n_computeGroup);
         pass.setBindGroup(1, this.n_uniformGroup);
 
-        pass.dispatch(GridX, GridY);
+        pass.dispatchWorkgroups(GridX, GridY);
     }
 
     draw(pass: GPURenderPassEncoder) {

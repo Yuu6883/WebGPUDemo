@@ -53,7 +53,7 @@ body {
     letter-spacing: 5px;
     cursor: pointer;
     font-weight: bold;
-    filter: drop-shadow(0 0 15px var(--theme)) drop-shadow(0 0 50px var(--theme))
+    filter: drop-shadow(0 0 3px var(--theme)) drop-shadow(0 0 3px var(--theme))
         contrast(2) brightness(2);
     transition: 0.5s;
     text-decoration: none;
@@ -62,5 +62,5 @@ body {
 #app > div > a:hover {
     color: black;
     background-color: var(--theme);
-    filter: drop-shadow(0 0 20px var(--theme)) contrast(2) brightness(2);
+    filter: drop-shadow(0 0 5px var(--theme)) contrast(2) brightness(2);
 }

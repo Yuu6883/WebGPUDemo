@@ -45,7 +45,7 @@ struct VertexOutput {
     @location(1) ray_dir : vec3<f32>,        // ray direction
 };
 
-@stage(vertex)
+@vertex
 fn vert_main(
     @builtin(vertex_index) VertexIndex : u32,
     @builtin(instance_index) InstanceIndex : u32) -> VertexOutput {
@@ -118,7 +118,7 @@ fn sphIntersect(ro: vec3<f32>, rd: vec3<f32>, sph: vec4<f32>) -> f32 {
     return select(- b - sqrt(h), 0.0, h < 0.0);
 }
 
-@stage(fragment)
+@fragment
 fn frag_main(
         @location(0) sphere_center: vec3<f32>,
         @location(1) ray_dir: vec3<f32>) -> GBufferOutput {
@@ -163,7 +163,7 @@ struct DT {
 @group(2) @binding(1) var<storage, read_write> w_particles : RenderParticles;
 @group(2) @binding(3) var<storage, read> stage : StageParticles;
 
-@stage(compute) @workgroup_size(256)
+@compute @workgroup_size(256)
 fn spawn(
     @builtin(workgroup_id)        blockIdx :  vec3<u32>,
     @builtin(local_invocation_id) threadIdx : vec3<u32>
@@ -181,10 +181,10 @@ fn spawn(
 
 @group(3) @binding(0) var<uniform> dt : DT;
 
-let pi = 3.1415926;
-let epsi = 0.0001;
+const pi = 3.1415926;
+const epsi = 0.0001;
 
-@stage(compute) @workgroup_size(256)
+@compute @workgroup_size(256)
 fn update(
     @builtin(workgroup_id)        blockIdx :  vec3<u32>,
     @builtin(local_invocation_id) threadIdx : vec3<u32>

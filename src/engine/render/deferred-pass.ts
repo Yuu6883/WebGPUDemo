@@ -128,8 +128,16 @@ export class DeferredPass implements RenderPass {
         });
 
         GBuffer.views = [
-            this.posnorm.createView({ baseArrayLayer: 0, arrayLayerCount: 1 }),
-            this.posnorm.createView({ baseArrayLayer: 1, arrayLayerCount: 1 }),
+            this.posnorm.createView({
+                baseArrayLayer: 0,
+                arrayLayerCount: 1,
+                dimension: '2d',
+            }),
+            this.posnorm.createView({
+                baseArrayLayer: 1,
+                arrayLayerCount: 1,
+                dimension: '2d',
+            }),
             this.albedo.createView(),
         ];
 

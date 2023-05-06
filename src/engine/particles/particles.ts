@@ -423,7 +423,7 @@ export default class Particles implements Renderable {
         pass.setBindGroup(0, this.stageUniformGroup);
         pass.setBindGroup(1, this.stageCameraGroup);
         pass.setBindGroup(2, this.stageGroup);
-        pass.dispatch(Math.ceil(spawned / 256));
+        pass.dispatchWorkgroups(Math.ceil(spawned / 256));
     }
 
     update(pass: GPUComputePassEncoder) {
@@ -432,7 +432,7 @@ export default class Particles implements Renderable {
         pass.setBindGroup(0, this.updateUniformGroup);
         pass.setBindGroup(1, this.updateCameraGroup);
         pass.setBindGroup(2, this.updateGroup);
-        pass.dispatch(Math.ceil(this.count / 256));
+        pass.dispatchWorkgroups(Math.ceil(this.count / 256));
     }
 
     async postUpdate() {}

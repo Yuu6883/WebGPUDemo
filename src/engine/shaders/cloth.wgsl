@@ -40,13 +40,13 @@ struct Indices {
 @group(1) @binding(1) var<uniform> dimension: Dimension;
 @group(1) @binding(2) var<uniform> vectors: Vectors;
 
-let TILE_SIZE = 16;
-let TILE_SIZE_U = 16u;
-let INNER_TILE = 14u;
+const TILE_SIZE = 16;
+const TILE_SIZE_U = 16u;
+const INNER_TILE = 14u;
 
 @group(0) @binding(0) var<storage, read_write> indices: Indices;
 
-@stage(compute) @workgroup_size(TILE_SIZE, TILE_SIZE, 1)
+@compute @workgroup_size(TILE_SIZE, TILE_SIZE, 1)
 fn init_indices(
   @builtin(workgroup_id)        blockIdx :  vec3<u32>,
   @builtin(local_invocation_id) threadIdx : vec3<u32>
@@ -83,8 +83,8 @@ var<private> force: vec3<f32>;
 var<private> p1: vec3<f32>;
 var<private> v1: vec3<f32>;
 
-let SQRT2 = 1.4142135623730951;
-let EPSIL = 0.0001;
+const SQRT2 = 1.4142135623730951;
+const EPSIL = 0.0001;
 
 fn spring_damper(p2: vec4<f32>, v2: vec4<f32>, rest_length: f32) {
     // Empty padded point
@@ -109,8 +109,8 @@ fn spring_damper(p2: vec4<f32>, v2: vec4<f32>, rest_length: f32) {
     force = force - constants.damping_constant * v_close * dir;
 }
 
-let AIR_DENSITY = 1.225;
-let DRAG_COEFFI = 1.5;
+const AIR_DENSITY = 1.225;
+const DRAG_COEFFI = 1.5;
 
 fn aerodynamic(p2: ClothPointShared, p3: ClothPointShared) {
     // Empty padded points
@@ -142,7 +142,7 @@ fn aerodynamic(p2: ClothPointShared, p3: ClothPointShared) {
 
 var<workgroup> tile : array<array<ClothPointShared, 16>, 16>;
 
-@stage(compute) @workgroup_size(TILE_SIZE, TILE_SIZE, 1)
+@compute @workgroup_size(TILE_SIZE, TILE_SIZE, 1)
 fn calc_forces(
   @builtin(workgroup_id)        blockIdx :  vec3<u32>,
   @builtin(local_invocation_id) threadIdx : vec3<u32>
@@ -235,7 +235,7 @@ fn triangle_normal(p2: vec4<f32>, p3: vec4<f32>) {
 
 var<workgroup> p_tile : array<array<vec4<f32>, 16>, 16>;
 
-@stage(compute) @workgroup_size(TILE_SIZE, TILE_SIZE, 1)
+@compute @workgroup_size(TILE_SIZE, TILE_SIZE, 1)
 fn calc_normal(
     @builtin(workgroup_id)        blockIdx :  vec3<u32>,
     @builtin(local_invocation_id) threadIdx : vec3<u32>
@@ -309,7 +309,7 @@ struct DT {
 
 @group(2) @binding(0) var<uniform> dt: DT;
 
-@stage(compute) @workgroup_size(256)
+@compute @workgroup_size(256)
 fn update(
   @builtin(workgroup_id)        blockIdx :  vec3<u32>,
   @builtin(local_invocation_id) threadIdx : vec3<u32>

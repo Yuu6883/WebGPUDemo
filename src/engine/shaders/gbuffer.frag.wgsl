@@ -6,7 +6,7 @@ struct GBufferOutput {
     @location(2) albedo : vec4<f32>,
 };
 
-@stage(fragment)
+@fragment
 fn main(@location(0) fragPosition: vec3<f32>,
         @location(1) fragNormal: vec3<f32>,
         @location(2) fragUV : vec2<f32>) -> GBufferOutput {

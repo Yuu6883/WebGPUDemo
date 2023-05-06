@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import ReactDOM from 'react-dom';
+import { createRoot } from 'react-dom/client';
 import Engine from './engine/core/engine';
 import { EngineParam } from './engine/types';
 
@@ -38,7 +38,7 @@ const App = () => {
         // return () => worker.terminate();
     }, []);
 
-    const base = `${location.origin}/${location.pathname}`;
+    const base = `${location.origin}/${location.pathname}`.replace(/\/\/$/, '');
 
     return (
         <div>
@@ -49,4 +49,5 @@ const App = () => {
     );
 };
 
-ReactDOM.render(<App />, document.getElementById('app'));
+const root = createRoot(document.getElementById('app'));
+root.render(<App />);

@@ -75,12 +75,12 @@ export default class Renderer {
 
         console.log(GDevice.device.limits);
 
-        GDevice.format = this.ctx.getPreferredFormat(GDevice.adapter);
+        GDevice.format = navigator.gpu.getPreferredCanvasFormat();
         this.ctx.configure({
             device: GDevice.device,
             format: GDevice.format,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            compositingAlphaMode: 'opaque',
+            alphaMode: 'opaque',
         });
 
         this.scene = new Scene(this);
@@ -331,8 +331,7 @@ export default class Renderer {
             device: GDevice.device,
             format: GDevice.format,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            compositingAlphaMode: 'opaque',
-            size: { width: w, height: h },
+            alphaMode: 'opaque',
         });
 
         if (this.dimension[0] < w || this.dimension[1] < h) {
