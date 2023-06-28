@@ -3,7 +3,7 @@ const path = require('path');
 
 module.exports = (_, argv) => ({
     entry: './src/index.tsx',
-    target: 'electron-renderer',
+    target: 'web',
     output: {
         filename: 'index.js',
         path: path.resolve(__dirname, 'build'),

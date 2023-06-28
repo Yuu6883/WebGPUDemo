@@ -4,9 +4,8 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "dev": "webpack serve --mode=development",
-        "build": "webpack build --mode=production",
-        "start": "electron ."
+        "start": "webpack serve --mode=development",
+        "build": "webpack build --mode=production"
     },
     "keywords": [],
     "author": "",
@@ -20,7 +19,6 @@
         "@webgpu/types": "^0.1.21",
         "css-loader": "^6.6.0",
         "dat.gui": "^0.7.9",
-        "electron": "^24.2.0",
         "file-loader": "^6.2.0",
         "gl-matrix": "^3.4.3",
         "html-webpack-plugin": "^5.5.0",

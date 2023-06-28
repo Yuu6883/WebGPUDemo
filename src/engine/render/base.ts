@@ -68,8 +68,14 @@ export default class Renderer {
     async init() {
         if (!GDevice.readyState) {
             GDevice.readyState = 1;
-            GDevice.adapter = await navigator.gpu.requestAdapter();
-            GDevice.device = await GDevice.adapter.requestDevice();
+            GDevice.adapter = await navigator.gpu.requestAdapter({
+                powerPreference: 'high-performance',
+            });
+            GDevice.device = await GDevice.adapter.requestDevice({
+                // requiredLimits: {
+                //     maxColorAttachmentBytesPerSample: 64,
+                // },
+            });
             GDevice.readyState = 2;
         } else return;
 
