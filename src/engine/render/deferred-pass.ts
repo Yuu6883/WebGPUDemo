@@ -112,7 +112,7 @@ export class DeferredPass implements RenderPass {
         this.posnorm = device.createTexture({
             size: [...screenSize2D, 2],
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            format: 'rgba32float',
+            format: 'rgba16float',
         });
 
         this.albedo = device.createTexture({
@@ -208,9 +208,9 @@ export class DeferredPass implements RenderPass {
                 entryPoint: 'main',
                 targets: [
                     // position
-                    { format: 'rgba32float' },
+                    { format: 'rgba16float' },
                     // normal
-                    { format: 'rgba32float' },
+                    { format: 'rgba16float' },
                     // albedo
                     { format: 'bgra8unorm' },
                 ],

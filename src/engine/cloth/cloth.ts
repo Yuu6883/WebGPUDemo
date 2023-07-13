@@ -170,9 +170,9 @@ export default class Cloth implements Renderable {
                         entryPoint: 'main',
                         targets: [
                             // position
-                            { format: 'rgba32float' },
+                            { format: 'rgba16float' },
                             // normal
-                            { format: 'rgba32float' },
+                            { format: 'rgba16float' },
                             // albedo
                             { format: 'bgra8unorm' },
                         ],
@@ -205,9 +205,9 @@ export default class Cloth implements Renderable {
                         entryPoint: 'main',
                         targets: [
                             // position
-                            { format: 'rgba32float' },
+                            { format: 'rgba16float' },
                             // normal
-                            { format: 'rgba32float' },
+                            { format: 'rgba16float' },
                             // albedo
                             { format: 'bgra8unorm' },
                         ],

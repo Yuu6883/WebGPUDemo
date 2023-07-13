@@ -100,9 +100,9 @@ export default class Particles implements Renderable {
                 entryPoint: 'frag_main',
                 targets: [
                     // position
-                    { format: 'rgba32float' },
+                    { format: 'rgba16float' },
                     // normal
-                    { format: 'rgba32float' },
+                    { format: 'rgba16float' },
                     // albedo
                     { format: 'bgra8unorm' },
                 ],
