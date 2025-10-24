@@ -1,4 +1,6 @@
 export interface RenderPass {
+    init();
+    resize(width: number, height: number);
     allocUniform(): {
         index: number;
         offset: number;
@@ -8,6 +10,7 @@ export interface RenderPass {
     };
 
     freeUniformIndex(index: number): void;
+    render(dt: number, now: number, output: GPUTexture, camBuf: Float32Array);
 }
 
 export interface Renderable {

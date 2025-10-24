@@ -416,8 +416,8 @@ export default class Particles implements Renderable {
         view.setFloat32(40, this.wind[2], true);
 
         const queue = GDevice.device.queue;
-        queue.writeBuffer(this.stageBuf, 0, this.cpuStageBuf, 0, spawned * 8);
-        queue.writeBuffer(this.indicesBuf, 0, this.usedIndices, 0, this.count);
+        queue.writeBuffer(this.stageBuf, 0, this.cpuStageBuf.buffer, 0, spawned * 8);
+        queue.writeBuffer(this.indicesBuf, 0, this.usedIndices.buffer, 0, this.count);
         queue.writeBuffer(this.paramsUB, 0, this.sphereBuffer);
 
         pass.setBindGroup(0, this.stageUniformGroup);

@@ -1,13 +1,14 @@
-import { checkDevice, GDevice } from './base';
+import Renderer, { checkDevice, GDevice } from './base';
 
 import GBufferVertWGSL from '../shaders/gbuffer.vert.wgsl';
 import GBufferFragWGSL from '../shaders/gbuffer.frag.wgsl';
 import QuadVertWGSL from '../shaders/quad.vert.wgsl';
-import DeferredFragWGSL from '../shaders/deferred.frag.wgsl';
+import DeferredFragWGSL from '../shaders/deferred.pbr.frag.wgsl';
 import PointLight from './pointlight';
 import { Renderable, RenderPass } from './interfaces';
-import Cloth, { GCloth } from '../cloth/cloth';
+import Cloth from '../cloth/cloth';
 import Particles, { GParticle } from '../particles/particles';
+import StaticMesh from './staticmesh';
 
 export const GBuffer: {
     ready: boolean;
@@ -16,7 +17,6 @@ export const GBuffer: {
     basePassVertShader: GPUShaderModule;
     basePassFragShader: GPUShaderModule;
     deferredPipeline: GPURenderPipeline;
-    basePassDesc: GPURenderPassDescriptor;
     deferredPassDesc: GPURenderPassDescriptor;
     texGroup: GPUBindGroup;
     dimGroup: GPUBindGroup;
@@ -29,7 +29,6 @@ export const GBuffer: {
     basePassVertShader: null,
     basePassFragShader: null,
     deferredPipeline: null,
-    basePassDesc: null,
     deferredPassDesc: null,
     texGroup: null,
     dimGroup: null,
@@ -40,7 +39,6 @@ export const GBuffer: {
 export class DeferredPass implements RenderPass {
     private posnorm: GPUTexture;
     private albedo: GPUTexture;
-    private depth: GPUTexture;
 
     private configUB: GPUBuffer;
     private lightNum = new Uint32Array([0]);
@@ -119,12 +117,6 @@ export class DeferredPass implements RenderPass {
             size: screenSize2D,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             format: 'bgra8unorm',
-        });
-
-        this.depth = device.createTexture({
-            size: screenSize2D,
-            format: 'depth24plus',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
         });
 
         GBuffer.views = [
@@ -218,7 +210,7 @@ export class DeferredPass implements RenderPass {
             depthStencil: {
                 depthWriteEnabled: true,
                 depthCompare: 'less',
-                format: 'depth24plus',
+                format: 'depth24plus-stencil8',
             },
             primitive: {
                 topology: 'triangle-list',
@@ -311,28 +303,6 @@ export class DeferredPass implements RenderPass {
             },
         });
 
-        GBuffer.basePassDesc = {
-            colorAttachments: GBuffer.views.map((view, i) => ({
-                view,
-                clearValue: i
-                    ? { r: 0, g: 0, b: 0, a: 0 }
-                    : {
-                          r: Number.MAX_VALUE,
-                          g: Number.MAX_VALUE,
-                          b: Number.MAX_VALUE,
-                          a: Number.MAX_VALUE,
-                      },
-                loadOp: 'clear',
-                storeOp: 'store',
-            })),
-            depthStencilAttachment: {
-                view: this.depth.createView(),
-                depthClearValue: 1.0,
-                depthLoadOp: 'clear',
-                depthStoreOp: 'store',
-            },
-        };
-
         GBuffer.deferredPassDesc = {
             colorAttachments: [
                 {
@@ -365,15 +335,65 @@ export class DeferredPass implements RenderPass {
         device.queue.writeBuffer(this.dimUB, 0, new Float32Array(screenSize2D));
 
         GBuffer.ready = true;
-
-        await Promise.all([
-            Cloth.initPipeline(this.camUB, this.clothDTUB),
-            Particles.initPipeline(this.camUB, this.particleDTUB),
-        ]);
     }
 
-    updateSize() {
-        // TODO
+    resize(width: number, height: number) {
+        const device = GDevice.device;
+        if (!GBuffer.ready) return;
+
+        if (this.posnorm.width !== width || this.posnorm.height !== height) {
+            this.posnorm.destroy();
+            this.posnorm = device.createTexture({
+                size: [width, height, 2],
+                format: 'rgba16float',
+                usage:
+                    GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            });
+        }
+
+        if (this.albedo.width !== width || this.albedo.height !== height) {
+            this.albedo.destroy();
+            this.albedo = device.createTexture({
+                size: [width, height],
+                format: 'bgra8unorm',
+                usage:
+                    GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            });
+        }
+
+        GBuffer.views = [
+            this.posnorm.createView({
+                baseArrayLayer: 0,
+                arrayLayerCount: 1,
+                dimension: '2d',
+            }),
+            this.posnorm.createView({
+                baseArrayLayer: 1,
+                arrayLayerCount: 1,
+                dimension: '2d',
+            }),
+            this.albedo.createView(),
+        ];
+
+        const texLayout = device.createBindGroupLayout({
+            entries: GBuffer.views.map((_, binding) => ({
+                binding,
+                visibility: GPUShaderStage.FRAGMENT,
+                texture: { sampleType: 'unfilterable-float' },
+            })),
+        });
+
+        GBuffer.texGroup = device.createBindGroup({
+            layout: texLayout,
+            entries: GBuffer.views.map((resource, binding) => ({
+                binding,
+                resource,
+            })),
+        });
+    }
+
+    addMesh(mesh: StaticMesh) {
+        this.meshDrawList.push(mesh);
     }
 
     updateLight() {
@@ -411,47 +431,17 @@ export class DeferredPass implements RenderPass {
         const device = GDevice.device;
         const queue = device.queue;
 
-        queue.writeBuffer(this.camUB, 0, camBuf);
+        queue.writeBuffer(this.camUB, 0, camBuf.buffer);
         queue.writeBuffer(this.configUB, 0, this.lightNum);
         queue.writeBuffer(this.lightSB, 0, this.lightBuf);
-        queue.writeBuffer(this.modelUB, 0, this.modelBufs);
+        queue.writeBuffer(this.modelUB, 0, this.modelBufs.buffer);
 
         const cmd = device.createCommandEncoder();
         const cmds: GPUCommandEncoder[] = [cmd];
 
         const SAMPLE_STEP = 1;
 
-        // Milliseconds
         queue.writeBuffer(this.clothDTUB, 0, new Float32Array([SAMPLE_STEP * 0.001]));
-
-        if (GCloth.ready && this.clothDrawList.length) {
-            let loop = 0;
-            while (Cloth.sampleTime < now) {
-                Cloth.sampleTime += SAMPLE_STEP * Cloth.sampleRate;
-                loop++;
-            }
-
-            for (let i = 0; i < Math.min(50, loop); i++) {
-                // Cloth compute pass
-                const ClothForcePass = cmd.beginComputePass();
-                ClothForcePass.setPipeline(GCloth.simPipeline);
-                for (const cloth of this.clothDrawList) cloth.simulate(ClothForcePass);
-                ClothForcePass.end();
-
-                // Cloth update pass
-                const ClothUpdatePass = cmd.beginComputePass();
-                ClothUpdatePass.setBindGroup(2, GCloth.dtGroup);
-                ClothUpdatePass.setPipeline(GCloth.updatePipeline);
-                for (const cloth of this.clothDrawList) cloth.update(ClothUpdatePass);
-                ClothUpdatePass.end();
-            }
-
-            const ClothNormalPass = cmd.beginComputePass();
-            ClothNormalPass.setPipeline(GCloth.normalCalcPipeline);
-            for (const cloth of this.clothDrawList) cloth.recalcNormals(ClothNormalPass);
-            ClothNormalPass.end();
-        }
-
         queue.writeBuffer(this.particleDTUB, 0, new Float32Array([1 / 60]));
 
         if (GParticle.ready && this.particlesDrawList.length) {
@@ -468,8 +458,33 @@ export class DeferredPass implements RenderPass {
             UpdatePass.end();
         }
 
+        const basePassDesc: GPURenderPassDescriptor = {
+            colorAttachments: GBuffer.views.map((view, i) => ({
+                view,
+                clearValue: i
+                    ? { r: 0, g: 0, b: 0, a: 0 }
+                    : {
+                          r: Number.MAX_VALUE,
+                          g: Number.MAX_VALUE,
+                          b: Number.MAX_VALUE,
+                          a: Number.MAX_VALUE,
+                      },
+                loadOp: 'clear',
+                storeOp: 'store',
+            })),
+            depthStencilAttachment: {
+                view: Renderer.DefaultDepthStencilView,
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+                stencilClearValue: 0,
+                stencilLoadOp: 'clear',
+                stencilStoreOp: 'store',
+            },
+        };
+
         // GBuffer base pass
-        const GBufferPass = cmd.beginRenderPass(GBuffer.basePassDesc);
+        const GBufferPass = cmd.beginRenderPass(basePassDesc);
 
         GBufferPass.setViewport(0, 0, GDevice.screen.width, GDevice.screen.height, 0, 1);
 
@@ -478,19 +493,6 @@ export class DeferredPass implements RenderPass {
         GBufferPass.setBindGroup(1, GBuffer.viewGroup);
 
         for (const mesh of this.meshDrawList) mesh.draw(GBufferPass);
-
-        // Draw clothes / debug normal
-        if (GCloth.ready && this.clothDrawList.length) {
-            if (Cloth.debug) {
-                GBufferPass.setPipeline(GCloth.normalDebugPipeline);
-                GBufferPass.setBindGroup(1, GCloth.debugViewGroup);
-                for (const cloth of this.clothDrawList) cloth.debug(GBufferPass);
-            } else {
-                GBufferPass.setPipeline(GCloth.renderPipeline);
-                GBufferPass.setBindGroup(1, GCloth.viewGroup);
-                for (const cloth of this.clothDrawList) cloth.draw(GBufferPass);
-            }
-        }
 
         if (GParticle.ready) {
             GBufferPass.setPipeline(GParticle.renderPipeline);

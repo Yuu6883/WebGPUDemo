@@ -74,4 +74,10 @@ module.exports = (_, argv) => ({
             filename: 'index.html',
         }),
     ],
+    devServer: {
+        static: {
+            directory: path.resolve(__dirname, './assets'),
+            publicPath: '/assets',
+        },
+    },
 });

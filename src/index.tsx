@@ -25,28 +25,18 @@ const App = () => {
             dpr: window.devicePixelRatio,
         };
 
-        const query = window.location.search;
         const engine = new Engine(params);
         engine.init().then(() => {
-            if (query === '?cloth') engine.renderer.setupCloth();
-            else if (query === '?particles') engine.renderer.setupParticles();
-            else engine.renderer.setupCubes();
-            // engine.renderer.setupParticles();
+            engine.renderer.setupCubes();
+            engine.renderer.setupParticles();
+            engine.renderer.setupCloth();
         });
 
         // worker.postMessage(data);
         // return () => worker.terminate();
     }, []);
 
-    const base = `${location.origin}/${location.pathname}`.replace(/\/\/$/, '');
-
-    return (
-        <div>
-            <a href={base}>Cubes</a>
-            <a href={base + '?cloth'}>Cloth</a>
-            <a href={base + '?particles'}>Particles</a>
-        </div>
-    );
+    return <></>;
 };
 
 const root = createRoot(document.getElementById('app'));

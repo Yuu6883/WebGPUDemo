@@ -1,6 +1,6 @@
 import Cloth from '../cloth/cloth';
 import Engine from '../core/engine';
-import CameraRotator from '../input/input';
+import Camera2DController from '../input/2dcam';
 import Cube from '../primitives/cube';
 import Camera from './camera';
 import { DeferredPass } from './deferred-pass';
@@ -10,6 +10,11 @@ import Stats from 'stats-js';
 import { GUI } from 'dat.gui';
 import Particles from '../particles/particles';
 import { vec3 } from 'gl-matrix';
+import TextureAtlas from './texture';
+import { RenderPass } from './interfaces';
+import { SpritePass } from './sprite-pass';
+
+export const RESOLUTION = [2560, 1440];
 
 export const GDevice: {
     readyState: 0 | 1 | 2;
@@ -36,7 +41,7 @@ export default class Renderer {
     private lastRAF = performance.now();
 
     private engine: Engine;
-    private canvas: HTMLCanvasElement | OffscreenCanvas;
+    private canvas: HTMLCanvasElement;
     private ctx: GPUCanvasContext;
 
     private stats = new Stats();
@@ -45,12 +50,13 @@ export default class Renderer {
     private static DefaultDepthStencilTex: GPUTexture = null;
     static DefaultDepthStencilView: GPUTextureView = null;
 
-    private readonly dimension: [number, number];
+    public readonly viewport: [number, number] = [0, 0];
 
-    private pass: DeferredPass;
+    public pass: RenderPass;
     private scene: Scene;
     private mainCamera: Camera;
-    private cameraCtrl: CameraRotator;
+    private cameraCtrl: Camera2DController;
+    private textures: TextureAtlas;
 
     private readonly cubes: Cube[] = [];
     private cloth: Cloth;
@@ -60,17 +66,22 @@ export default class Renderer {
         this.engine = engine;
         this.canvas = engine.params.canvas;
         this.ctx = this.canvas.getContext('webgpu');
-        this.dimension = [this.canvas.width, this.canvas.height];
+        this.textures = new TextureAtlas();
+
+        this.canvas.width = RESOLUTION[0] * engine.params.dpr;
+        this.canvas.height = RESOLUTION[1] * engine.params.dpr;
 
         document.body.appendChild(this.stats.dom);
     }
 
     async init() {
+        console.log('Loading textures...');
+        const loading = this.textures.load();
+
+        console.log('Initializing WebGPU...');
         if (!GDevice.readyState) {
             GDevice.readyState = 1;
-            GDevice.adapter = await navigator.gpu.requestAdapter({
-                powerPreference: 'high-performance',
-            });
+            GDevice.adapter = await navigator.gpu.requestAdapter();
             GDevice.device = await GDevice.adapter.requestDevice({
                 // requiredLimits: {
                 //     maxColorAttachmentBytesPerSample: 64,
@@ -91,20 +102,29 @@ export default class Renderer {
 
         this.scene = new Scene(this);
         this.mainCamera = new Camera(this.scene);
-        this.cameraCtrl = new CameraRotator(this.mainCamera);
+        this.cameraCtrl = new Camera2DController(this.mainCamera);
 
         const p = this.engine.params;
         GDevice.screen = p.screen;
-        this.resize(p.screen.width * p.dpr, p.screen.height * p.dpr);
+        this.resize(window.innerWidth * p.dpr, window.innerHeight * p.dpr);
+        window.addEventListener('resize', () =>
+            this.resize(window.innerWidth * p.dpr, window.innerHeight * p.dpr),
+        );
 
-        this.pass = new DeferredPass();
+        this.pass = new SpritePass();
 
-        this.setupLights();
         this.start();
-        await this.pass.init();
+        const [passInit, texLoad] = await Promise.allSettled([this.pass.init(), loading]);
+        console.log(passInit.status, texLoad.status);
+    }
+
+    syncAsteroids() {
+        if (!(this.pass instanceof SpritePass)) return;
     }
 
     setupCubes() {
+        if (!(this.pass instanceof DeferredPass)) return;
+
         const POS_RANGE = 250;
         const rng = (min: number, max: number) => Math.random() * (max - min) + min;
 
@@ -124,12 +144,14 @@ export default class Renderer {
                 Math.random(),
             ];
             cube.transform.scale = [scale, scale, scale];
-            this.pass.meshDrawList.push(cube);
+            this.pass.addMesh(cube);
             this.cubes.push(cube);
         }
     }
 
     setupLights() {
+        if (!(this.pass instanceof DeferredPass)) return;
+
         const POS_RANGE = 500;
         const rng = (min: number, max: number) => Math.random() * (max - min) + min;
 
@@ -157,6 +179,8 @@ export default class Renderer {
     }
 
     setupCloth() {
+        if (!(this.pass instanceof DeferredPass)) return;
+
         const gui = this.gui;
         const options = {
             'Debug Normal': false,
@@ -227,6 +251,8 @@ export default class Renderer {
     }
 
     setupParticles() {
+        if (!(this.pass instanceof DeferredPass)) return;
+
         const p = (this.particles = new Particles(this.pass, {
             max_num: 1000000,
             max_spawn_per_frame: 10000,
@@ -330,20 +356,10 @@ export default class Renderer {
     }
 
     resize(w: number, h: number) {
-        this.canvas.width = w;
-        this.canvas.height = h;
-
-        this.ctx.configure({
-            device: GDevice.device,
-            format: GDevice.format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            alphaMode: 'opaque',
-        });
-
-        if (this.dimension[0] < w || this.dimension[1] < h) {
-            Renderer.DefaultDepthStencilTex?.destroy();
+        if (!Renderer.DefaultDepthStencilTex) {
+            const ct = this.ctx.getCurrentTexture();
             Renderer.DefaultDepthStencilTex = GDevice.device.createTexture({
-                size: { width: w, height: h },
+                size: { width: ct.width, height: ct.height },
                 mipLevelCount: 1,
                 dimension: '2d',
                 format: 'depth24plus-stencil8',
@@ -351,14 +367,18 @@ export default class Renderer {
             });
             Renderer.DefaultDepthStencilView =
                 Renderer.DefaultDepthStencilTex.createView();
+            this.pass?.resize(w, h);
         }
 
-        this.dimension[0] = w;
-        this.dimension[1] = h;
-        GDevice.screen.width = w;
-        GDevice.screen.height = h;
-
-        this.mainCamera.aspect = w / h;
+        const DPR = this.engine.params.dpr;
+        this.viewport[0] = w * DPR;
+        const ratio =
+            window.innerWidth / window.innerHeight / (RESOLUTION[0] / RESOLUTION[1]);
+        if (ratio < 1) {
+            this.viewport[1] = ratio * this.canvas.clientHeight * DPR;
+        } else {
+            this.viewport[1] = this.canvas.clientHeight * DPR;
+        }
     }
 
     start() {
@@ -370,30 +390,19 @@ export default class Renderer {
 
             const t = now * 0.001;
 
-            this.mainCamera.update();
-
-            for (let i = 0; i < this.cubes.length; i++) {
-                const cube = this.cubes[i];
-
-                cube.transform.rotation = [Math.sin(t + i), Math.cos(t + i), 0, 0];
-                cube.transform.update();
-                cube.transform.updateInverse();
-            }
+            this.mainCamera.update(this.viewport);
 
             const dt = Math.min(1 / 60, (now - this.lastRAF) / 1000);
 
-            await this.pass.render(
-                dt,
-                now,
-                this.ctx.getCurrentTexture().createView(),
-                this.mainCamera.view,
-            );
+            this.pass.render(dt, now, this.ctx.getCurrentTexture(), this.mainCamera.view);
 
             this.RAF = requestAnimationFrame(cb);
             this.lastRAF = now;
 
+            this.engine.syncAsteroids();
             this.stats.end();
         };
+        console.log('Starting animation loop');
         this.RAF = requestAnimationFrame(cb);
     }
 
@@ -401,9 +410,5 @@ export default class Renderer {
         if (!this.RAF) return;
         cancelAnimationFrame(this.RAF);
         this.RAF = 0;
-    }
-
-    get aspectRatio() {
-        return this.dimension[0] / this.dimension[1];
     }
 }
