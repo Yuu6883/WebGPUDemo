@@ -145,7 +145,7 @@ export default class AsteroidASM {
             // mod.run_bench();
 
             mod.init_map();
-            mod.set_asteroid_size(1024 * 1024);
+            mod.set_asteroid_size(512 * 1024);
             console.log('set_asteroid_size', mod.get_asteroid_size());
             mod.populate_asteroids();
 

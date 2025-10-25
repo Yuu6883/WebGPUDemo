@@ -3,16 +3,19 @@ import { EntityRenderParams } from '../types';
 type TextureAtlasEntry = EntityRenderParams & { offset: number };
 
 export default class TextureAtlas {
-    private scratch: HTMLCanvasElement;
+    public scratch: HTMLCanvasElement;
     private scratchCtx: CanvasRenderingContext2D;
 
     public readonly entries: TextureAtlasEntry[] = [];
+    public static readonly DIM = 1024;
 
     constructor() {
         this.scratch = document.createElement('canvas');
-        this.scratchCtx = this.scratch.getContext('2d');
-        this.scratch.width = 1024;
-        this.scratch.height = 1024;
+        this.scratchCtx = this.scratch.getContext('2d', {
+            alpha: true,
+        });
+        this.scratch.width = TextureAtlas.DIM;
+        this.scratch.height = TextureAtlas.DIM;
     }
 
     public async load() {
@@ -86,6 +89,6 @@ export default class TextureAtlas {
         }
 
         await Promise.all(tasks);
-        console.log(this.entries);
+        // document.body.appendChild(this.scratch);
     }
 }

@@ -1,3 +1,5 @@
+import { ReadonlyVec3 } from 'gl-matrix';
+
 export interface EngineParam {
     canvas: HTMLCanvasElement;
     screen: {
@@ -18,10 +20,10 @@ export interface EntityRenderParams {
     sss_contrast: number;
     sss_amount: number;
     lights: {
-        color: number[];
-        direction: number[];
+        color: ReadonlyVec3;
+        direction: ReadonlyVec3;
     }[];
-    ambient_light: number[];
+    ambient_light: ReadonlyVec3;
 }
 
 export interface AsteroidWebAssemblyModule extends WebAssembly.Exports {

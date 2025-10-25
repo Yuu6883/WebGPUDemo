@@ -97,7 +97,7 @@ export default class Renderer {
             device: GDevice.device,
             format: GDevice.format,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            alphaMode: 'opaque',
+            alphaMode: 'premultiplied',
         });
 
         this.scene = new Scene(this);
@@ -114,8 +114,11 @@ export default class Renderer {
         this.pass = new SpritePass();
 
         this.start();
-        const [passInit, texLoad] = await Promise.allSettled([this.pass.init(), loading]);
-        console.log(passInit.status, texLoad.status);
+        await Promise.all([this.pass.init(), loading]);
+
+        if (this.pass instanceof SpritePass) {
+            this.pass.updateSpriteTexture(this.textures);
+        }
     }
 
     syncAsteroids() {
@@ -387,8 +390,6 @@ export default class Renderer {
         const cb = async (now: number) => {
             GDevice.now = now;
             this.stats.begin();
-
-            const t = now * 0.001;
 
             this.mainCamera.update(this.viewport);
 

@@ -1,12 +1,13 @@
 import AsteroidASM from '../asteroid';
 import Renderer from '../render/base';
 import { SpritePass } from '../render/sprite-pass';
-import { AsteroidWebAssemblyModule, EngineParam } from '../types';
+import { EngineParam } from '../types';
 
 export default class Engine {
     public readonly renderer: Renderer;
     public readonly params: EngineParam;
     public readonly asm: AsteroidASM;
+    private tick = 0;
 
     constructor(params: EngineParam) {
         this.params = params;
@@ -26,7 +27,10 @@ export default class Engine {
         if (!this.asm.ready) return;
         const pass = this.renderer.pass;
         if (!(pass instanceof SpritePass)) return;
-        this.asm.module.tick(-2 / 15.0);
+        this.tick++;
+
+        const vel = -1 / 30;
+        this.asm.module.tick(vel);
 
         const size = this.asm.module.get_asteroid_size();
         const posXPtr = this.asm.module.get_asteroid_pos_x();
@@ -38,5 +42,6 @@ export default class Engine {
         const state = new Uint32Array(this.asm.memory.buffer, statePtr, size);
 
         pass.updateSprites(posX, posY, state);
+        pass.updateTick(this.tick);
     }
 }
