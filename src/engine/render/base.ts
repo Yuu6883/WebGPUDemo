@@ -62,6 +62,8 @@ export default class Renderer {
     private cloth: Cloth;
     private particles: Particles;
 
+    public postRenderHooks: Function[] = [];
+
     constructor(engine: Engine) {
         this.engine = engine;
         this.canvas = engine.params.canvas;
@@ -400,7 +402,7 @@ export default class Renderer {
             this.RAF = requestAnimationFrame(cb);
             this.lastRAF = now;
 
-            this.engine.syncAsteroids();
+            this.postRenderHooks.forEach(h => h());
             this.stats.end();
         };
         console.log('Starting animation loop');

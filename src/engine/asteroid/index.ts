@@ -1,160 +1,72 @@
-import { AsteroidWebAssemblyModule } from '../types';
+import Engine from '../core/engine';
+import { SpritePass } from '../render/sprite-pass';
 
-const textDecoder = new TextDecoder('utf-8');
-
-export default class AsteroidASM {
+export default class SimWorker {
     public ready = false;
-    /** @type {WebAssembly.Memory} */
-    readonly memory = new WebAssembly.Memory({ initial: 16384, maximum: 16384 });
+    public tick = 0;
 
-    private stdout_buffer = '';
-    private stderr_buffer = '';
-    public module: AsteroidWebAssemblyModule;
+    private readonly engine: Engine;
+    private readonly worker: Worker;
 
-    flush(fd: number) {
-        if (fd === 1) {
-            let i = 0;
-            while (i < this.stdout_buffer.length) {
-                const next_newline = this.stdout_buffer.indexOf('\n', i);
-                if (next_newline === -1) {
-                    this.stdout_buffer = this.stdout_buffer.slice(i);
-                    break;
+    private readonly buffers: Record<string, ArrayBuffer> = {
+        posX: null,
+        posY: null,
+        state: null,
+    };
+
+    public velocity = -1 / 30;
+
+    constructor(engine: Engine) {
+        this.engine = engine;
+        this.worker = new Worker(new URL('./worker.ts', import.meta.url));
+        this.worker.addEventListener('message', ({ data }) => {
+            if (data.event === 'ready') {
+                this.ready = true;
+                this.start();
+            } else if (data.event === 'tick') {
+                this.tick++;
+                if (this.buffers.posX || this.buffers.posY || this.buffers.state)
+                    return console.error('Buffers not cleared???');
+
+                const size = data.size;
+                this.buffers.posX = data.buffers.posX;
+                this.buffers.posY = data.buffers.posY;
+                this.buffers.state = data.buffers.state;
+
+                const pass = this.engine.renderer.pass;
+
+                if (pass instanceof SpritePass) {
+                    pass.updateSprites(
+                        new Int32Array(this.buffers.posX, 0, size),
+                        new Int32Array(this.buffers.posY, 0, size),
+                        new Uint32Array(this.buffers.state, 0, size),
+                    );
+                    pass.updateTick(this.tick);
                 }
-                console.log(this.stdout_buffer.slice(i, next_newline));
-                i = next_newline + 1;
             }
-            if (i === this.stdout_buffer.length) {
-                this.stdout_buffer = '';
-            }
-        } else if (fd === 2) {
-            let i = 0;
-            while (i < this.stderr_buffer.length) {
-                const next_newline = this.stderr_buffer.indexOf('\n', i);
-                if (next_newline === -1) {
-                    this.stderr_buffer = this.stderr_buffer.slice(i);
-                    break;
-                }
-                console.error(this.stderr_buffer.slice(i, next_newline));
-                i = next_newline + 1;
-            }
-            if (i === this.stderr_buffer.length) {
-                this.stderr_buffer = '';
-            }
-        }
+        });
+
+        this.engine.renderer.postRenderHooks.push(() => this.sim());
     }
 
-    async init() {
-        const memory = this.memory;
-        // Provide minimal imports. Add more if your wasm expects them.
-        const imports = {
-            wasi_snapshot_preview1: {
-                args_sizes_get: (...args) => {
-                    console.log('args_sizes_get called', ...args);
-                    return 0;
-                },
-                args_get: (...args) => {
-                    console.log('args_get called', ...args);
-                    return 0;
-                },
-                environ_sizes_get: (count, buf_size) => {
-                    const view = new DataView(memory.buffer);
-                    view.setUint32(count, 0, true);
-                    view.setUint32(buf_size, 0, true);
-                    return 0;
-                },
-                environ_get: (...args) => {
-                    console.log('environ_get called', ...args);
-                    return 0;
-                },
-                fd_write: (fd, iovs_ptr, iovs_len, result) => {
-                    const view = new DataView(memory.buffer);
-                    let written = 0;
+    start() {
+        this.call('start');
+    }
 
-                    for (let i = 0; i < iovs_len; i++) {
-                        const bufPtr = view.getUint32(iovs_ptr + i * 8, true);
-                        const bufLen = view.getUint32(iovs_ptr + i * 8 + 4, true);
+    sim() {
+        if (!this.ready) return;
+        if (!this.buffers.posX || !this.buffers.posY || !this.buffers.state) return;
 
-                        const bytes = new Uint8Array(memory.buffer, bufPtr, bufLen);
-                        const str = textDecoder.decode(bytes);
+        this.worker.postMessage(
+            { call: 'sim', args: [this.velocity], buffers: this.buffers },
+            Object.values(this.buffers),
+        );
+        this.buffers.posX = null;
+        this.buffers.posY = null;
+        this.buffers.state = null;
+    }
 
-                        if (fd === 1) {
-                            this.stdout_buffer += str;
-                            this.flush(1);
-                        } else if (fd === 2) {
-                            this.stderr_buffer += str;
-                            this.flush(2);
-                        } else {
-                            return 8; // __WASI_ERRNO_BADF
-                        }
-
-                        written += bufLen;
-                    }
-                    view.setUint32(result, written, true);
-                    return 0;
-                },
-                fd_seek: () => {
-                    console.log(`fd_seek called: ${arguments}`);
-                },
-                fd_read: () => {
-                    console.log(`fd_read called: ${arguments}`);
-                },
-                fd_close: () => {
-                    console.log(`fd_close called: ${arguments}`);
-                },
-                proc_exit: code => {
-                    console.log(`proc_exit called: ${code}`);
-                    return 0;
-                },
-                clock_time_get: (_, __, out) => {
-                    out = out >>> 0;
-                    const ts = BigInt(new Date().getTime()) * 1000000n;
-                    const view = new DataView(memory.buffer);
-                    view.setBigUint64(out, ts, true);
-                    return 0;
-                },
-            },
-            env: {
-                memory,
-                __main_argc_argv: (...args) => {
-                    console.log(`__main_argc_argv called`, ...args);
-                    return 0;
-                },
-                emscripten_notify_memory_growth: (...args) => {
-                    console.log(
-                        (memory.buffer.byteLength / 1024 / 1024).toFixed(3) + 'MB',
-                    );
-                    console.log(
-                        `emscripten_notify_memory_growth called: ${JSON.stringify(args)}`,
-                    );
-                },
-            },
-        };
-
-        try {
-            const wasmPath = 'assets/asteroid.wasm';
-            const { instance } = await WebAssembly.instantiateStreaming(
-                fetch(wasmPath),
-                imports,
-            );
-            // Call run_bench and print the result (if any)
-
-            const mod = (this.module = instance.exports as AsteroidWebAssemblyModule);
-            try {
-                mod._start();
-            } catch (e) {}
-            // mod.run_bench();
-
-            mod.init_map();
-            mod.set_asteroid_size(512 * 1024);
-            console.log('set_asteroid_size', mod.get_asteroid_size());
-            mod.populate_asteroids();
-
-            this.ready = true;
-        } catch (err) {
-            console.log(
-                `memory size: ${(memory.buffer.byteLength / 1024 / 1024).toFixed(3)}MB`,
-            );
-            console.error('Failed to load or run asteroid.wasm:', err);
-        }
+    call(call: string, ...args: any[]) {
+        this.worker.postMessage({ call, args });
     }
 }
