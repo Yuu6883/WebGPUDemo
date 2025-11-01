@@ -1,5 +1,4 @@
-import { clamp } from '../math/util';
-import { RESOLUTION } from '../render/base';
+import Renderer, { RESOLUTION } from '../render/base';
 import Camera from '../render/camera';
 
 enum InputState {
@@ -21,9 +20,11 @@ export default class Camera2DController {
     private mouseX: number;
     private mouseY: number;
 
+    private readonly renderer: Renderer;
     private readonly cam: Camera;
 
-    constructor(camera: Camera) {
+    constructor(renderer: Renderer, camera: Camera) {
+        this.renderer = renderer;
         this.cam = camera;
 
         window.addEventListener('contextmenu', e => e.preventDefault());
@@ -54,6 +55,10 @@ export default class Camera2DController {
             dx *= ratio;
         }
 
+        if (this.leftDown) {
+            const world = this.cam.screenToWorld(dx, dy);
+            this.renderer.brush(world[0], world[1]);
+        }
         if (this.rightDown) this.cam.pan(this.mouseX - dx, dy - this.mouseY);
 
         this.mouseX = dx;

@@ -1,18 +1,14 @@
-import Cloth from '../cloth/cloth';
 import Engine from '../core/engine';
 import Camera2DController from '../input/2dcam';
-import Cube from '../primitives/cube';
 import Camera from './camera';
-import { DeferredPass } from './deferred-pass';
-import PointLight from './pointlight';
 import Scene from './scene';
 import Stats from 'stats-js';
 import { GUI } from 'dat.gui';
-import Particles from '../particles/particles';
-import { vec3 } from 'gl-matrix';
 import TextureAtlas from './texture';
 import { RenderPass } from './interfaces';
-import { SpritePass } from './sprite-pass';
+import { PBRSpritePass } from './pbr-sprite-pass';
+import SpriteStore from './sprite-store';
+import { FlatSpritePass } from './flat-sprite-pass';
 
 export const RESOLUTION = [2560, 1440];
 
@@ -52,17 +48,16 @@ export default class Renderer {
 
     public readonly viewport: [number, number] = [0, 0];
 
-    public pass: RenderPass;
+    public store: SpriteStore;
+    public readonly passes: RenderPass[] = [];
     private scene: Scene;
     private mainCamera: Camera;
     private cameraCtrl: Camera2DController;
     private textures: TextureAtlas;
 
-    private readonly cubes: Cube[] = [];
-    private cloth: Cloth;
-    private particles: Particles;
-
     public postRenderHooks: Function[] = [];
+    public ready = new Promise<void>(resolve => (this.resolveReady = resolve));
+    private resolveReady: () => void;
 
     constructor(engine: Engine) {
         this.engine = engine;
@@ -75,6 +70,19 @@ export default class Renderer {
 
         document.body.appendChild(this.stats.dom);
     }
+
+    public readonly options = {
+        'Brush Fill': false,
+        'Brush Radius': 0.1,
+        'Always Spawn': true,
+        'Max Asteroids': 250_000,
+        'Platform Velocity': 1.0 / 30.0,
+        'Random X Offset': 0,
+        'Random Y Offset': 20,
+        'Random X Range': 100,
+        'Random Y Range': 10,
+        'Random Velocity': 0.1 / 30,
+    };
 
     async init() {
         console.log('Loading textures...');
@@ -104,7 +112,7 @@ export default class Renderer {
 
         this.scene = new Scene(this);
         this.mainCamera = new Camera(this.scene);
-        this.cameraCtrl = new Camera2DController(this.mainCamera);
+        this.cameraCtrl = new Camera2DController(this, this.mainCamera);
 
         const p = this.engine.params;
         GDevice.screen = p.screen;
@@ -113,250 +121,65 @@ export default class Renderer {
             this.resize(window.innerWidth * p.dpr, window.innerHeight * p.dpr),
         );
 
-        this.pass = new SpritePass();
+        this.store = new SpriteStore();
+        this.passes.push(new PBRSpritePass(this.store), new FlatSpritePass(this.store));
 
         this.start();
-        await Promise.all([this.pass.init(), loading]);
+        await Promise.all(this.passes.map(pass => pass.init()).concat([loading]));
 
-        if (this.pass instanceof SpritePass) {
-            this.pass.updateSpriteTexture(this.textures);
-        }
-    }
-
-    syncAsteroids() {
-        if (!(this.pass instanceof SpritePass)) return;
-    }
-
-    setupCubes() {
-        if (!(this.pass instanceof DeferredPass)) return;
-
-        const POS_RANGE = 250;
-        const rng = (min: number, max: number) => Math.random() * (max - min) + min;
-
-        const CUBES = 2500;
-        for (let i = 0; i < CUBES; i++) {
-            const cube = new Cube(this.pass);
-            cube.transform.position = [
-                rng(-POS_RANGE, POS_RANGE),
-                rng(0, 2 * POS_RANGE),
-                rng(-POS_RANGE, POS_RANGE),
-            ];
-            const scale = Math.random() * 10 + 1;
-            cube.transform.rotation = [
-                Math.random(),
-                Math.random(),
-                Math.random(),
-                Math.random(),
-            ];
-            cube.transform.scale = [scale, scale, scale];
-            this.pass.addMesh(cube);
-            this.cubes.push(cube);
-        }
-    }
-
-    setupLights() {
-        if (!(this.pass instanceof DeferredPass)) return;
-
-        const POS_RANGE = 500;
-        const rng = (min: number, max: number) => Math.random() * (max - min) + min;
-
-        const LIGHTS = 1024;
-        for (let i = 0; i < LIGHTS; i++) {
-            const light = new PointLight();
-            light.position = new Float32Array([
-                rng(-POS_RANGE, POS_RANGE),
-                rng(0, POS_RANGE),
-                rng(-POS_RANGE, POS_RANGE),
-            ]);
-
-            light.color = new Float32Array([
-                rng(0.25, 0.75),
-                rng(0.25, 0.75),
-                rng(0.25, 0.75),
-            ]);
-
-            light.radius = 128;
-
-            this.pass.lightDrawList.push(light);
-        }
-
-        this.pass.updateLight();
-    }
-
-    setupCloth() {
-        if (!(this.pass instanceof DeferredPass)) return;
+        this.store.updateSpriteTexture(this.textures);
 
         const gui = this.gui;
-        const options = {
-            'Debug Normal': false,
-            'Wind X': 2,
-            'Wind Y': -1,
-            'Wind Z': 5,
-            'Floor Y': 5,
-            'Simulation Speed': 1,
-            'Reset Wind': function () {
-                options['Wind X'] = options['Wind Y'] = options['Wind Z'] = 0;
-                updateWind();
-                gui.updateDisplay();
-            },
-        };
+        const options = this.options;
+        const brush = gui.addFolder('Brush');
+        brush.add(options, 'Brush Fill');
+        brush.add(options, 'Brush Radius', 0.1, 32, 0.1);
+        const asteroid = gui.addFolder('Asteroid');
+        asteroid.add(options, 'Always Spawn');
+        asteroid.add(options, 'Max Asteroids', 0, 2000000, 1000);
+        asteroid.add(options, 'Platform Velocity', 0, 0.5, 0.001);
+        asteroid.add(options, 'Random X Offset', -1000, 1000, 10);
+        asteroid.add(options, 'Random Y Offset', -1000, 1000, 10);
+        asteroid.add(options, 'Random X Range', 0, 1000, 10);
+        asteroid.add(options, 'Random Y Range', 0, 1000, 10);
+        asteroid.add(options, 'Random Velocity', 0, 0.025, 0.0001);
 
-        const updateWind = () => {
-            this.cloth.setWindSpeed([
-                options['Wind X'],
-                options['Wind Y'],
-                options['Wind Z'],
-            ]);
-        };
-
-        const updateFloor = () => {
-            this.cloth.setFloor(options['Floor Y']);
-        };
-
-        const DIM = 64;
-        this.cloth = new Cloth(this.pass, DIM, DIM, {
-            mass: 1,
-            rest_length: 100 / DIM,
-            springConstant: DIM * DIM,
-            dampingConstant: 50,
-            floor: options['Floor Y'],
-            wind: [options['Wind X'], options['Wind Y'], options['Wind Z']],
-            gravity: [0, -9.81, 0],
-        });
-        this.cloth.transform.position = [-DIM / 2, -DIM / 2, 0];
-        this.cloth.transform.update();
-        this.cloth.transform.updateInverse();
-
-        this.pass.clothDrawList.push(this.cloth);
-
-        console.log(GDevice.device.limits);
-        // setTimeout(() => this.stop(), 100);
-
-        // Wind speed range
-        const WR = 10;
-
-        gui.add(options, 'Debug Normal').onChange(v => (Cloth.debug = v));
-        gui.add(options, 'Wind X', -WR, WR, 0.01).onChange(updateWind);
-        gui.add(options, 'Wind Y', -WR, WR, 0.01).onChange(updateWind);
-        gui.add(options, 'Wind Z', -WR, WR, 0.01).onChange(updateWind);
-        gui.add(options, 'Floor Y', 0, 1.5 * DIM, 0.01).onChange(updateFloor);
-        gui.add(options, 'Simulation Speed', 0.1, 25, 0.01).onChange(
-            v => (Cloth.sampleRate = 1 / v),
-        );
-        gui.add(options, 'Reset Wind');
-
-        this.cloth.fixedPoints.forEach(({ row, col, x, y }, i) => {
-            const coord = { x, y };
-            const updateCoord = () =>
-                this.cloth.setFixedPointPosition(row, col, coord.x, coord.y);
-            const folder = gui.addFolder(`Fixed Point#${i}`);
-            folder.add(coord, 'x', -DIM * 2, DIM * 2, 0.01).onChange(updateCoord);
-            folder.add(coord, 'y', -DIM * 2, DIM * 2, 0.01).onChange(updateCoord);
-        });
+        // this.test();
+        this.resolveReady();
     }
 
-    setupParticles() {
-        if (!(this.pass instanceof DeferredPass)) return;
+    // test() {
+    //     const pass = this.getPass(FlatSpritePass);
+    //     const chunk = pass.allocChunk();
 
-        const p = (this.particles = new Particles(this.pass, {
-            max_num: 1000000,
-            max_spawn_per_frame: 10000,
-        }));
-        this.pass.particlesDrawList.push(this.particles);
+    //     const ELEM = 10 * 10;
+    //     const posX = new Int32Array(ELEM);
+    //     const posY = new Int32Array(ELEM);
+    //     const state = new Uint32Array(ELEM);
+    //     const HALF_TILE = 1 << 10;
 
-        const gui = this.gui;
-        const options = {
-            Pause: function () {
-                p.pause = !p.pause;
-            },
-            Radius: p.radius,
-        };
-        const addVectorOption = (
-            folder: GUI,
-            vec: vec3,
-            range: vec3,
-            positiveOnly = false,
-        ) => {
-            const vecOp = {
-                X: vec[0],
-                Y: vec[1],
-                Z: vec[2],
-            };
-            for (let i = 0; i < 3; i++)
-                folder
-                    .add(
-                        vecOp,
-                        'XYZ'.charAt(i),
-                        positiveOnly ? 0 : vec[i] - range[i],
-                        positiveOnly ? range[i] : vec[i] + range[i],
-                        range[i] * 0.01,
-                    )
-                    .onChange(v => (vec[i] = v));
-        };
+    //     for (let x = 0; x < 10; x++) {
+    //         for (let y = 0; y < 10; y++) {
+    //             posX[x + y * 10] = ((x - 5) << 11) + HALF_TILE;
+    //             posY[x + y * 10] = ((y - 5) << 11) + HALF_TILE;
+    //             state[x + y * 10] = 4 << 16;
+    //         }
+    //     }
+    //     pass.updateChunk(chunk, posX, posY, state);
+    // }
 
-        gui.add(options, 'Pause');
-        const constOptions = {
-            'Air Density': p.coeffients[0],
-            Drag: p.coeffients[1],
-            'Groud Elasticity': p.coeffients[2],
-            'Groud Friction': p.coeffients[3],
-        };
-        const constants = gui.addFolder('Constants');
-        for (let i = 0; i < 4; i++) {
-            constants
-                .add(
-                    constOptions,
-                    Object.keys(constOptions)[i],
-                    0,
-                    [2, 0.025, 1, 1][i],
-                    0.001,
-                )
-                .onChange(v => (p.coeffients[i] = v));
-        }
+    getPass<T extends RenderPass>(ctor: new (...args: any[]) => T): T {
+        return this.passes.find(p => p instanceof ctor) as T;
+    }
 
-        const particle = gui.addFolder('Particle');
-
-        particle.add(options, 'Radius', 0.01, 5, 0.001).onChange(v => (p.radius = v));
-
-        const spawn = particle.addFolder('Spawn');
-        const spawnOptions = {
-            'Spawn Rate': p.spawn_rate,
-            'Life Span': p.lifeSpan[0],
-            'Life Variance': p.lifeSpan[1],
-        };
-
-        spawn
-            .add(spawnOptions, 'Spawn Rate', 0, 100000, p.spawn_rate * 0.001)
-            .onChange(v => (p.spawn_rate = v));
-        spawn
-            .add(spawnOptions, 'Life Span', 5000, 25000, 100)
-            .onChange(v => (p.lifeSpan[0] = v));
-        spawn
-            .add(spawnOptions, 'Life Variance', 0, 5000, 100)
-            .onChange(v => (p.lifeSpan[1] = v));
-
-        addVectorOption(gui.addFolder('Wind'), p.wind, [100, 100, 100]);
-        addVectorOption(
-            particle.addFolder('Initial Position'),
-            p.initPos,
-            [1000, 1000, 1000],
-        );
-        addVectorOption(
-            particle.addFolder('Position Variance'),
-            p.variPos,
-            [500, 500, 500],
-            true,
-        );
-        addVectorOption(
-            particle.addFolder('Initial Velocity'),
-            p.initVel,
-            [100, 100, 100],
-        );
-        addVectorOption(
-            particle.addFolder('Velocity Variance'),
-            p.variVel,
-            [50, 50, 50],
-            true,
+    brush(x: number, y: number) {
+        this.engine.sim.call(
+            'brush',
+            x,
+            y,
+            this.options['Brush Radius'],
+            0,
+            this.options['Brush Fill'],
         );
     }
 
@@ -372,7 +195,7 @@ export default class Renderer {
             });
             Renderer.DefaultDepthStencilView =
                 Renderer.DefaultDepthStencilTex.createView();
-            this.pass?.resize(w, h);
+            for (const pass of this.passes) pass.resize(w, h);
         }
 
         const DPR = this.engine.params.dpr;
@@ -397,7 +220,11 @@ export default class Renderer {
 
             const dt = Math.min(1 / 60, (now - this.lastRAF) / 1000);
 
-            this.pass.render(dt, now, this.ctx.getCurrentTexture(), this.mainCamera.view);
+            this.store.updateCam(this.mainCamera.view);
+            for (const pass of this.passes) {
+                const clear = pass === this.passes[0];
+                pass.render(dt, now, this.ctx.getCurrentTexture(), clear);
+            }
 
             this.RAF = requestAnimationFrame(cb);
             this.lastRAF = now;

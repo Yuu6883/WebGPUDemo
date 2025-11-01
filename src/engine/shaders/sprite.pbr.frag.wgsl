@@ -16,6 +16,7 @@ struct SpriteInfo {
     light_offset: u32,
     light_count: u32,
     ambient_light: vec3<f32>,
+    flags: u32,
 };
 
 struct LightInfo {
@@ -23,14 +24,12 @@ struct LightInfo {
     direction: vec3<f32>,
 };
 
-@group(0) @binding(3) var<storage, read> sprite_params: array<SpriteInfo>;
-
 @group(1) @binding(0) var u_texture: texture_2d<f32>;
 @group(1) @binding(1) var u_sampler: sampler;
 @group(1) @binding(2) var<uniform> lights: array<LightInfo, 512>;
+@group(1) @binding(3) var<storage, read> sprite_params: array<SpriteInfo>;
 
 struct FSInput {
-    // @location(0) uv_scale: vec2<f32>,
     @location(1) uv: vec2<f32>,
     @location(2) @interpolate(flat) state: u32,
     @location(3) @interpolate(flat) rotation: f32
@@ -61,6 +60,8 @@ fn adjust_saturation(color: vec3<f32>, saturation: f32) -> vec3<f32> {
 
 @fragment
 fn main(in: FSInput) -> FSOutput {
+    var out: FSOutput;
+
     var uv_x: f32;
     var uv_y: f32;
 
@@ -84,7 +85,6 @@ fn main(in: FSInput) -> FSOutput {
     uv_y = in.uv.y / 16.0 + f32(roughness_offset / 16u) / 16.0;
     let uv_roughness = vec2<f32>(uv_x, uv_y);
 
-    var out: FSOutput;
 
     // --- sample textures ---
     let albedo = textureSample(u_texture, u_sampler, uv_albedo);

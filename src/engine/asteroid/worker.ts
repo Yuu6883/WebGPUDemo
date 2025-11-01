@@ -24,6 +24,8 @@ const copyBuffer = (name: string, ptr: number, size: number) => {
     new Uint8Array(Buffers[name]).set(source);
 };
 
+const brushes: [number, number, number, number, boolean][] = [];
+
 const tick = (sim = true, vel = -1 / 30) => {
     const size = ASM.module.get_asteroid_size();
     const posXPtr = ASM.module.get_asteroid_pos_x();
@@ -45,19 +47,56 @@ const tick = (sim = true, vel = -1 / 30) => {
 ctx.addEventListener('message', ({ data }) => {
     if (!ASM.ready) return console.error('Worker not ready', data);
 
-    const { call, args, buffers } = data;
-    if (call === 'start') tick(false);
-    else if (call === 'sim') {
+    const { call, args, buffers, fill, rng } = data;
+    if (call === 'start') {
+        ASM.module.init_map();
+        ASM.module.set_asteroid_size(args[0] || 2048);
+        ASM.module.fill_asteroids(args[0] || 2048);
+        tick(false);
+    } else if (call === 'sim') {
         if (Buffers.posX || Buffers.posY || Buffers.state)
             return console.error('Buffers not cleared???');
         Buffers.posX = buffers.posX;
         Buffers.posY = buffers.posY;
         Buffers.state = buffers.state;
         tick(true, args[0]);
+        ASM.module.update_rng(rng[0], rng[1], rng[2], rng[3], rng[4]);
+        ASM.module.fill_asteroids(fill || 0);
+
+        if (brushes.length) {
+            // apply brushes
+            for (const brush of brushes) {
+                const [x, y, radius, method, value] = brush;
+                ASM.module.brush(x, y, radius, method, value);
+            }
+            brushes.splice(0, brushes.length);
+        }
+    } else if (call === 'brush') {
+        brushes.push(args);
     } else console.error('Unknown call', call, args);
 });
 
 (async () => {
     await ASM.init();
+
+    ASM.notify_chunk_update = (
+        chunkX: number,
+        chunkY: number,
+        posX: ArrayBuffer,
+        posY: ArrayBuffer,
+        state: ArrayBuffer,
+    ) => {
+        if (!posX || !posY || !state) {
+            ctx.postMessage({ event: 'chunk', chunkX, chunkY, empty: true });
+            return;
+        }
+
+        ctx.postMessage({ event: 'chunk', chunkX, chunkY, posX, posY, state }, [
+            posX,
+            posY,
+            state,
+        ]);
+    };
+
     ctx.postMessage({ event: 'ready' });
 })();

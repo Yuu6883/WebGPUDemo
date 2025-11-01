@@ -26,12 +26,7 @@ const App = () => {
         };
 
         const engine = new Engine(params);
-        engine.init().then(() => {
-            engine.renderer.setupCubes();
-            engine.renderer.setupParticles();
-            engine.renderer.setupCloth();
-        });
-
+        engine.init();
         // worker.postMessage(data);
         // return () => worker.terminate();
     }, []);

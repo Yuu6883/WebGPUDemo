@@ -1,6 +1,6 @@
 import SimWorker from '../asteroid';
 import Renderer from '../render/base';
-import { SpritePass } from '../render/sprite-pass';
+import { PBRSpritePass } from '../render/pbr-sprite-pass';
 import { EngineParam } from '../types';
 
 export default class Engine {

@@ -24,6 +24,7 @@ export interface EntityRenderParams {
         direction: ReadonlyVec3;
     }[];
     ambient_light: ReadonlyVec3;
+    flat?: boolean;
 }
 
 export interface AsteroidWebAssemblyModule extends WebAssembly.Exports {
@@ -31,12 +32,20 @@ export interface AsteroidWebAssemblyModule extends WebAssembly.Exports {
     run_bench();
     init_map();
     set_asteroid_size(size: number);
-    populate_asteroids();
     tick(vel: number);
     get_asteroid_size(): number;
     get_asteroid_state(): number;
     get_asteroid_pos_x(): number;
     get_asteroid_pos_y(): number;
+    brush(x: number, y: number, radius: number, method: number, value: boolean);
+    fill_asteroids(upper_bound: number);
+    update_rng(
+        x_offset: number,
+        y_offset: number,
+        x_range: number,
+        y_range: number,
+        vel: number,
+    );
 }
 
 declare global {

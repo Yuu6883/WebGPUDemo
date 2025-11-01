@@ -10,6 +10,14 @@ export default class AsteroidASM {
     private stderr_buffer = '';
     public module: AsteroidWebAssemblyModule;
 
+    public notify_chunk_update: (
+        chunk_x: number,
+        chunk_y: number,
+        pos_x: ArrayBuffer,
+        pos_y: ArrayBuffer,
+        state: ArrayBuffer,
+    ) => void = null;
+
     flush(fd: number) {
         if (fd === 1) {
             let i = 0;
@@ -116,6 +124,35 @@ export default class AsteroidASM {
                         `emscripten_notify_memory_growth called: ${JSON.stringify(args)}`,
                     );
                 },
+                notify_chunk_update: (
+                    chunk_x: number,
+                    chunk_y: number,
+                    size: number,
+                    pos_x: number,
+                    pos_y: number,
+                    state: number,
+                ) => {
+                    if (!size) {
+                        this.notify_chunk_update?.(chunk_x, chunk_y, null, null, null);
+                    } else {
+                        this.notify_chunk_update?.(
+                            chunk_x,
+                            chunk_y,
+                            memory.buffer.slice(
+                                pos_x,
+                                pos_x + size * Int32Array.BYTES_PER_ELEMENT,
+                            ),
+                            memory.buffer.slice(
+                                pos_y,
+                                pos_y + size * Int32Array.BYTES_PER_ELEMENT,
+                            ),
+                            memory.buffer.slice(
+                                state,
+                                state + size * Uint32Array.BYTES_PER_ELEMENT,
+                            ),
+                        );
+                    }
+                },
             },
         };
 
@@ -132,11 +169,6 @@ export default class AsteroidASM {
                 mod._start();
             } catch (e) {}
             // mod.run_bench();
-
-            mod.init_map();
-            mod.set_asteroid_size(512 * 1024);
-            console.log('set_asteroid_size', mod.get_asteroid_size());
-            mod.populate_asteroids();
 
             this.ready = true;
         } catch (err) {

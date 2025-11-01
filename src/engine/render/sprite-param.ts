@@ -135,4 +135,12 @@ export default class SpriteParam {
         this.view.setFloat32(68, value[1], true);
         this.view.setFloat32(72, value[2], true);
     }
+
+    get flags(): number {
+        return this.view.getUint32(76, true);
+    }
+
+    set flags(value: number) {
+        this.view.setUint32(76, value, true);
+    }
 }

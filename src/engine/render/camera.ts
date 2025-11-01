@@ -50,6 +50,14 @@ export default class Camera2D {
         this.position.y = out[1];
     }
 
+    public screenToWorld(screenX: number, screenY: number) {
+        const temp = mat4.create();
+        mat4.invert(temp, this.view);
+        const out = vec3.create();
+        vec3.transformMat4(out, vec3.fromValues(screenX, -screenY, 0), temp);
+        return out;
+    }
+
     public reset() {
         this.position.x = 0;
         this.position.y = 0;

@@ -10,7 +10,7 @@ export interface RenderPass {
     };
 
     freeUniformIndex(index: number): void;
-    render(dt: number, now: number, output: GPUTexture, camBuf: Float32Array);
+    render(dt: number, now: number, output: GPUTexture, clear: boolean);
 }
 
 export interface Renderable {

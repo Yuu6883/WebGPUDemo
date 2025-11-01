@@ -1,5 +1,6 @@
 import Engine from '../core/engine';
-import { SpritePass } from '../render/sprite-pass';
+import { FlatSpritePass, RenderChunk } from '../render/flat-sprite-pass';
+import { PBRSpritePass } from '../render/pbr-sprite-pass';
 
 export default class SimWorker {
     public ready = false;
@@ -14,7 +15,7 @@ export default class SimWorker {
         state: null,
     };
 
-    public velocity = -1 / 30;
+    private readonly chunkMap: Map<string, RenderChunk> = new Map();
 
     constructor(engine: Engine) {
         this.engine = engine;
@@ -22,7 +23,7 @@ export default class SimWorker {
         this.worker.addEventListener('message', ({ data }) => {
             if (data.event === 'ready') {
                 this.ready = true;
-                this.start();
+                this.engine.renderer.ready.then(() => this.start());
             } else if (data.event === 'tick') {
                 this.tick++;
                 if (this.buffers.posX || this.buffers.posY || this.buffers.state)
@@ -33,16 +34,36 @@ export default class SimWorker {
                 this.buffers.posY = data.buffers.posY;
                 this.buffers.state = data.buffers.state;
 
-                const pass = this.engine.renderer.pass;
+                const pass = this.engine.renderer.getPass(PBRSpritePass);
 
-                if (pass instanceof SpritePass) {
-                    pass.updateSprites(
-                        new Int32Array(this.buffers.posX, 0, size),
-                        new Int32Array(this.buffers.posY, 0, size),
-                        new Uint32Array(this.buffers.state, 0, size),
-                    );
-                    pass.updateTick(this.tick);
+                pass.updateSprites(
+                    new Int32Array(this.buffers.posX, 0, size),
+                    new Int32Array(this.buffers.posY, 0, size),
+                    new Uint32Array(this.buffers.state, 0, size),
+                );
+                this.engine.renderer.store.updateTick(this.tick);
+            } else if (data.event === 'chunk') {
+                const pass = this.engine.renderer.getPass(FlatSpritePass);
+                const key = `${data.chunkX}:${data.chunkY}`;
+                let chunk = this.chunkMap.get(key);
+
+                if (data.empty) {
+                    if (chunk) chunk.free();
+                    this.chunkMap.delete(key);
+                    return;
                 }
+
+                if (!chunk) {
+                    chunk = pass.allocChunk();
+                    this.chunkMap.set(key, chunk);
+                }
+
+                pass.updateChunk(
+                    chunk,
+                    new Int32Array(data.posX),
+                    new Int32Array(data.posY),
+                    new Uint32Array(data.state),
+                );
             }
         });
 
@@ -50,15 +71,28 @@ export default class SimWorker {
     }
 
     start() {
-        this.call('start');
+        this.call('start', this.engine.renderer.options['Max Asteroids']);
     }
 
     sim() {
         if (!this.ready) return;
         if (!this.buffers.posX || !this.buffers.posY || !this.buffers.state) return;
+        const options = this.engine.renderer.options;
 
         this.worker.postMessage(
-            { call: 'sim', args: [this.velocity], buffers: this.buffers },
+            {
+                call: 'sim',
+                args: [-Math.abs(options['Platform Velocity'])],
+                buffers: this.buffers,
+                fill: options['Always Spawn'] ? options['Max Asteroids'] : 0,
+                rng: [
+                    options['Random X Offset'],
+                    options['Random Y Offset'],
+                    options['Random X Range'],
+                    options['Random Y Range'],
+                    options['Random Velocity'],
+                ],
+            },
             Object.values(this.buffers),
         );
         this.buffers.posX = null;
