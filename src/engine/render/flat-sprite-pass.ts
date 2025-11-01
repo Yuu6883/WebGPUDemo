@@ -187,10 +187,7 @@ export class FlatSpritePass implements RenderPass {
                 GPUBufferUsage.COPY_DST |
                 GPUBufferUsage.COPY_SRC,
         });
-        if (oldX) {
-            encoder.copyBufferToBuffer(oldX, 0, this.posXBuffer, 0, oldX.size);
-            oldX.destroy();
-        }
+        if (oldX) encoder.copyBufferToBuffer(oldX, 0, this.posXBuffer, 0, oldX.size);
 
         const oldY = this.posYBuffer;
         this.posYBuffer = device.createBuffer({
@@ -201,10 +198,7 @@ export class FlatSpritePass implements RenderPass {
                 GPUBufferUsage.COPY_DST |
                 GPUBufferUsage.COPY_SRC,
         });
-        if (oldY) {
-            encoder.copyBufferToBuffer(oldY, 0, this.posYBuffer, 0, oldY.size);
-            oldY.destroy();
-        }
+        if (oldY) encoder.copyBufferToBuffer(oldY, 0, this.posYBuffer, 0, oldY.size);
 
         const oldState = this.stateBuffer;
         this.stateBuffer = device.createBuffer({
@@ -215,13 +209,16 @@ export class FlatSpritePass implements RenderPass {
                 GPUBufferUsage.COPY_DST |
                 GPUBufferUsage.COPY_SRC,
         });
-        if (oldState) {
+        if (oldState)
             encoder.copyBufferToBuffer(oldState, 0, this.stateBuffer, 0, oldState.size);
-            oldState.destroy();
-        }
 
         const cmd = encoder.finish();
         device.queue.submit([cmd]);
+        device.queue.onSubmittedWorkDone().then(() => {
+            oldX?.destroy();
+            oldY?.destroy();
+            oldState?.destroy();
+        });
 
         for (const chunk of this.chunks) chunk.group = null;
     }
